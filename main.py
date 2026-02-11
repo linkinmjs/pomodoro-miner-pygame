@@ -1,6 +1,7 @@
 """Pomodoro Miner - Idle/Pomodoro hybrid game with Pygame."""
 
 import math
+import os
 import random
 import pygame
 
@@ -59,12 +60,19 @@ def generate_asteroid_points(cx, cy, base_r, n=14):
 # ---------------------------------------------------------------------------
 TALENT_DEFS = {
     "fire_rate":       {"name": "Rapid Fire",      "max": 5, "per_lvl": 0.10, "desc": "-10% shot interval"},
+    "bullet_count":    {"name": "Multi Shot",      "max": 5, "per_lvl": 1,    "desc": "+1 bullet per shot"},
     "magnet_range":    {"name": "Magnetic Pull",    "max": 5, "per_lvl": 0.20, "desc": "+20% magnet radius"},
     "double_frag":     {"name": "Double Fragment",  "max": 5, "per_lvl": 0.08, "desc": "+8% double chance"},
     "orbit_speed":     {"name": "Thruster Boost",   "max": 5, "per_lvl": 0.10, "desc": "+10% orbit speed"},
     "frag_magnet_str": {"name": "Tractor Beam",     "max": 3, "per_lvl": 0.30, "desc": "+30% magnet strength"},
 }
-TALENT_ORDER = ["fire_rate", "magnet_range", "double_frag", "orbit_speed", "frag_magnet_str"]
+TALENT_ORDER = ["fire_rate", "bullet_count", "magnet_range", "double_frag", "orbit_speed", "frag_magnet_str"]
+
+# Ship shooting tunables
+BASE_BULLET_COUNT = 2
+BULLET_SPREAD = 0.15  # radians spread per bullet from center
+BURST_INTERVAL = 0.12  # seconds between each bullet in a burst
+SHOOTING_SPEED_MULT = 0.3  # orbit speed multiplier while shooting
 
 
 class TalentTree:
@@ -113,30 +121,74 @@ class Task:
 # Game objects (MissionScene helpers)
 # ---------------------------------------------------------------------------
 class Ship:
+    STATE_ORBITING = 0
+    STATE_SHOOTING = 1
+
     def __init__(self, cx, cy, orbit_speed=ORBIT_SPEED):
         self.cx = cx
         self.cy = cy
         self.angle = 0.0
-        self.orbit_speed = orbit_speed
+        self.base_orbit_speed = orbit_speed
         self.x = cx + ORBIT_RADIUS
         self.y = cy
         self.size = 12
+        self.state = self.STATE_ORBITING
+        # Burst state
+        self.bullets_remaining = 0
+        self.burst_timer = 0.0
+
+    def start_shooting(self, bullet_count):
+        self.state = self.STATE_SHOOTING
+        self.bullets_remaining = bullet_count
+        self.burst_timer = 0.0  # fire first bullet immediately
+
+    def _angle_toward_center(self):
+        return math.atan2(self.cy - self.y, self.cx - self.x)
 
     def update(self, dt):
-        self.angle += self.orbit_speed * dt
+        # Orbit (slower while shooting)
+        if self.state == self.STATE_SHOOTING:
+            speed = self.base_orbit_speed * SHOOTING_SPEED_MULT
+        else:
+            speed = self.base_orbit_speed
+
+        self.angle += speed * dt
         self.x = self.cx + ORBIT_RADIUS * math.cos(self.angle)
         self.y = self.cy + ORBIT_RADIUS * math.sin(self.angle)
 
+        # Burst timer
+        if self.state == self.STATE_SHOOTING:
+            self.burst_timer -= dt
+
+    @property
+    def facing(self):
+        if self.state == self.STATE_SHOOTING:
+            return self._angle_toward_center()
+        return self.angle + math.pi / 2  # tangent
+
+    def should_fire(self):
+        """Returns True once per bullet in the burst, at BURST_INTERVAL pace."""
+        if self.state != self.STATE_SHOOTING:
+            return False
+        if self.bullets_remaining <= 0:
+            return False
+        if self.burst_timer <= 0:
+            self.bullets_remaining -= 1
+            self.burst_timer = BURST_INTERVAL
+            if self.bullets_remaining <= 0:
+                self.state = self.STATE_ORBITING
+            return True
+        return False
+
     def draw(self, surf):
-        # Triangle pointing along orbit tangent
-        tangent = self.angle + math.pi / 2
-        cos_t, sin_t = math.cos(tangent), math.sin(tangent)
+        f = self.facing
+        cos_t, sin_t = math.cos(f), math.sin(f)
         s = self.size
         tip = (self.x + cos_t * s, self.y + sin_t * s)
-        left = (self.x + math.cos(tangent + 2.4) * s * 0.7,
-                self.y + math.sin(tangent + 2.4) * s * 0.7)
-        right = (self.x + math.cos(tangent - 2.4) * s * 0.7,
-                 self.y + math.sin(tangent - 2.4) * s * 0.7)
+        left = (self.x + math.cos(f + 2.4) * s * 0.7,
+                self.y + math.sin(f + 2.4) * s * 0.7)
+        right = (self.x + math.cos(f - 2.4) * s * 0.7,
+                 self.y + math.sin(f - 2.4) * s * 0.7)
         pygame.draw.polygon(surf, CYAN, [tip, left, right])
 
 
@@ -469,6 +521,7 @@ class MissionScene:
         self.eff_magnet_strength = MAGNET_STRENGTH * t.get_multiplier("frag_magnet_str")
         self.eff_shoot_interval_mult = 1.0 / t.get_multiplier("fire_rate")  # lower = faster
         self.double_frag_chance = t.get_chance("double_frag")
+        self.bullet_count = BASE_BULLET_COUNT + int(t.get_chance("bullet_count"))
 
         self.ship = Ship(cx, cy, eff_orbit_speed)
         self.asteroid_pts = generate_asteroid_points(cx, cy, 40)
@@ -484,6 +537,16 @@ class MissionScene:
     def _next_shot_time(self):
         lo, hi = SHOOT_INTERVAL_RANGE
         self.shoot_timer = random.uniform(lo, hi) * self.eff_shoot_interval_mult
+
+    def _fire_one_bullet(self):
+        """Fire a single bullet toward the asteroid with slight spread."""
+        base_angle = math.atan2(self.cy - self.ship.y, self.cx - self.ship.x)
+        spread = random.uniform(-BULLET_SPREAD, BULLET_SPREAD)
+        a = base_angle + spread
+        dist = math.hypot(self.cx - self.ship.x, self.cy - self.ship.y)
+        tx = self.ship.x + math.cos(a) * dist
+        ty = self.ship.y + math.sin(a) * dist
+        self.projectiles.append(Projectile(self.ship.x, self.ship.y, tx, ty))
 
     # -- events --
     def handle_event(self, ev):
@@ -501,6 +564,7 @@ class MissionScene:
         if self.remaining <= 0:
             self.remaining = 0
             self.task.pomodoros += 1
+            self.game.total_pomodoros += 1
             self.complete = True
             # Award fragments on completion
             self.game.talents.fragments += self.collected
@@ -511,12 +575,15 @@ class MissionScene:
         # Ship
         self.ship.update(dt)
 
-        # Shooting
+        # Shooting state machine
         self.shoot_timer -= dt
-        if self.shoot_timer <= 0:
-            self.projectiles.append(
-                Projectile(self.ship.x, self.ship.y, self.cx, self.cy))
+        if self.shoot_timer <= 0 and self.ship.state == Ship.STATE_ORBITING:
+            self.ship.start_shooting(self.bullet_count)
             self._next_shot_time()
+
+        # Fire bullets one by one during burst
+        if self.ship.should_fire():
+            self._fire_one_bullet()
 
         # Projectiles
         for p in self.projectiles:
@@ -675,6 +742,36 @@ class AbortScene:
                         self.continue_btn.centery - bl.get_height() // 2))
 
 
+class StoryScene:
+    def __init__(self, game, task, image):
+        self.game = game
+        self.task = task
+        self.image = image
+        # Scale image to fit screen while keeping aspect ratio
+        iw, ih = image.get_size()
+        scale = min(WIDTH / iw, HEIGHT / ih)
+        new_w, new_h = int(iw * scale), int(ih * scale)
+        self.scaled = pygame.transform.smoothscale(image, (new_w, new_h))
+        self.img_x = (WIDTH - new_w) // 2
+        self.img_y = (HEIGHT - new_h) // 2
+
+    def handle_event(self, ev):
+        if ev.type == pygame.MOUSEBUTTONDOWN or (
+            ev.type == pygame.KEYDOWN and ev.key in (pygame.K_RETURN, pygame.K_SPACE)
+        ):
+            self.game.scene = MissionScene(self.game, self.task)
+
+    def update(self, dt):
+        pass
+
+    def draw(self, surf):
+        surf.fill(BG_COLOR)
+        surf.blit(self.scaled, (self.img_x, self.img_y))
+        # Hint text
+        hint = self.game.font.render("Click or press SPACE to start mission", True, GRAY)
+        surf.blit(hint, (WIDTH // 2 - hint.get_width() // 2, HEIGHT - 30))
+
+
 # ---------------------------------------------------------------------------
 # Game
 # ---------------------------------------------------------------------------
@@ -689,16 +786,39 @@ class Game:
 
         self.tasks: list[Task] = []
         self.talents = TalentTree()
+        self.total_pomodoros = 0
+        self.story_images = self._load_story_images()
         self.menu = MenuScene(self)
         self.scene = self.menu
         self.running = True
+
+    def _load_story_images(self):
+        """Load all story_XX.png images sorted by number."""
+        img_dir = os.path.join(os.path.dirname(__file__), "assets", "images")
+        images = []
+        if not os.path.isdir(img_dir):
+            return images
+        files = sorted(
+            f for f in os.listdir(img_dir)
+            if f.startswith("story_") and f.endswith(".png")
+        )
+        for f in files:
+            path = os.path.join(img_dir, f)
+            images.append(pygame.image.load(path).convert_alpha())
+        return images
 
     def set_scene(self, name):
         if name == "menu":
             self.scene = self.menu
 
     def start_mission(self, task_idx):
-        self.scene = MissionScene(self, self.tasks[task_idx])
+        task = self.tasks[task_idx]
+        if self.story_images:
+            # Pick image based on total pomodoros completed (0-indexed)
+            idx = min(self.total_pomodoros, len(self.story_images) - 1)
+            self.scene = StoryScene(self, task, self.story_images[idx])
+        else:
+            self.scene = MissionScene(self, task)
 
     def run(self):
         while self.running:
