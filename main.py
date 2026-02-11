@@ -1,5 +1,6 @@
 """Pomodoro Miner - Idle/Pomodoro hybrid game with Pygame."""
 
+import asyncio
 import math
 import os
 import random
@@ -742,6 +743,41 @@ class AbortScene:
                         self.continue_btn.centery - bl.get_height() // 2))
 
 
+class FadeTransition:
+    """Fade-to-black transition between two scenes."""
+
+    def __init__(self, game, old_scene, new_scene, duration=0.5):
+        self.game = game
+        self.old_scene = old_scene
+        self.new_scene = new_scene
+        self.duration = duration
+        self.timer = 0.0
+        self.overlay = pygame.Surface((WIDTH, HEIGHT))
+        self.overlay.fill((0, 0, 0))
+
+    def handle_event(self, ev):
+        pass  # Block input during transition
+
+    def update(self, dt):
+        self.timer += dt
+        if self.timer >= self.duration:
+            self.game.scene = self.new_scene
+
+    def draw(self, surf):
+        half = self.duration / 2
+        if self.timer < half:
+            # Fade out: draw old scene, overlay goes 0→255
+            self.old_scene.draw(surf)
+            alpha = int(255 * (self.timer / half))
+        else:
+            # Fade in: draw new scene, overlay goes 255→0
+            self.new_scene.draw(surf)
+            alpha = int(255 * (1.0 - (self.timer - half) / half))
+        alpha = max(0, min(255, alpha))
+        self.overlay.set_alpha(alpha)
+        surf.blit(self.overlay, (0, 0))
+
+
 class StoryScene:
     def __init__(self, game, task, image):
         self.game = game
@@ -759,7 +795,8 @@ class StoryScene:
         if ev.type == pygame.MOUSEBUTTONDOWN or (
             ev.type == pygame.KEYDOWN and ev.key in (pygame.K_RETURN, pygame.K_SPACE)
         ):
-            self.game.scene = MissionScene(self.game, self.task)
+            new_scene = MissionScene(self.game, self.task)
+            self.game.scene = FadeTransition(self.game, self, new_scene)
 
     def update(self, dt):
         pass
@@ -809,18 +846,19 @@ class Game:
 
     def set_scene(self, name):
         if name == "menu":
-            self.scene = self.menu
+            self.scene = FadeTransition(self, self.scene, self.menu)
 
     def start_mission(self, task_idx):
         task = self.tasks[task_idx]
         if self.story_images:
             # Pick image based on total pomodoros completed (0-indexed)
             idx = min(self.total_pomodoros, len(self.story_images) - 1)
-            self.scene = StoryScene(self, task, self.story_images[idx])
+            new_scene = StoryScene(self, task, self.story_images[idx])
         else:
-            self.scene = MissionScene(self, task)
+            new_scene = MissionScene(self, task)
+        self.scene = FadeTransition(self, self.scene, new_scene)
 
-    def run(self):
+    async def run(self):
         while self.running:
             dt = self.clock.tick(FPS) / 1000.0
 
@@ -838,6 +876,7 @@ class Game:
             self.screen.fill(BG_COLOR)
             self.scene.draw(self.screen)
             pygame.display.flip()
+            await asyncio.sleep(0)
 
         pygame.quit()
 
@@ -846,4 +885,4 @@ class Game:
 # Entry point
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    Game().run()
+    asyncio.run(Game().run())
