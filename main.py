@@ -23,12 +23,12 @@ ORANGE = (255, 160, 40)
 ASTEROID_COLOR = (130, 130, 130)
 
 # Pomodoro duration in seconds (change to e.g. 60 for testing)
-POMODORO_SECONDS = 60  # 1 min for testing (change to 25 * 60 for real use)
+POMODORO_SECONDS = 60*5  # 1 min for testing (change to 25 * 60 for real use)
 
 # Ship / mission tunables
 ORBIT_RADIUS = 150
 ORBIT_SPEED = 0.4  # radians per second
-SHOOT_INTERVAL_RANGE = (15, 30)  # seconds between shots
+SHOOT_INTERVAL_RANGE = (1, 5)  # seconds between shots
 PROJECTILE_SPEED = 200  # px/s
 FRAGMENT_SPEED = 80
 FRAGMENT_DECEL = 0.97
@@ -489,8 +489,7 @@ class MissionScene:
     def handle_event(self, ev):
         if ev.type == pygame.MOUSEBUTTONDOWN:
             if self.abort_btn.collidepoint(ev.pos):
-                # Abort: fragments NOT kept
-                self.game.set_scene("menu")
+                self.game.scene = AbortScene(self.game, self.task, self.collected, self.remaining)
 
     # -- update --
     def update(self, dt):
@@ -526,9 +525,16 @@ class MissionScene:
             if math.hypot(p.x - self.cx, p.y - self.cy) < 35:
                 p.alive = False
                 # Spawn fragment(s) from asteroid surface
-                self.fragments.append(Fragment(self.cx, self.cy, self.cx, self.cy))
+                spawn_angle = random.uniform(0, 2 * math.pi)
+                spawn_r = 35  # asteroid radius
+                sx = self.cx + math.cos(spawn_angle) * spawn_r
+                sy = self.cy + math.sin(spawn_angle) * spawn_r
+                self.fragments.append(Fragment(sx, sy, self.cx, self.cy))
                 if random.random() < self.double_frag_chance:
-                    self.fragments.append(Fragment(self.cx, self.cy, self.cx, self.cy))
+                    spawn_angle2 = random.uniform(0, 2 * math.pi)
+                    sx2 = self.cx + math.cos(spawn_angle2) * spawn_r
+                    sy2 = self.cy + math.sin(spawn_angle2) * spawn_r
+                    self.fragments.append(Fragment(sx2, sy2, self.cx, self.cy))
 
         self.projectiles = [p for p in self.projectiles if p.alive]
 
@@ -594,6 +600,79 @@ class MissionScene:
             earned = font.render(f"+{self.collected} fragments earned!", True, YELLOW)
             surf.blit(earned, (WIDTH // 2 - earned.get_width() // 2,
                                HEIGHT // 2 + 15))
+
+
+class AbortScene:
+    PENALTY = 0.30  # keep 30% of collected fragments
+
+    def __init__(self, game, task, collected, time_remaining):
+        self.game = game
+        self.task = task
+        self.collected = collected
+        self.earned = int(collected * self.PENALTY)
+        self.time_remaining = time_remaining
+        self.time_elapsed = POMODORO_SECONDS - time_remaining
+
+        # Award the 30% immediately
+        self.game.talents.fragments += self.earned
+
+        # Button
+        self.continue_btn = pygame.Rect(WIDTH // 2 - 80, HEIGHT // 2 + 120, 160, 40)
+
+    def handle_event(self, ev):
+        if ev.type == pygame.MOUSEBUTTONDOWN:
+            if self.continue_btn.collidepoint(ev.pos):
+                self.game.set_scene("menu")
+        elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_RETURN:
+            self.game.set_scene("menu")
+
+    def update(self, dt):
+        pass
+
+    def draw(self, surf):
+        font = self.game.font
+        big = self.game.font_big
+
+        # Overlay background
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        surf.blit(overlay, (0, 0))
+
+        # Title
+        title = big.render("MISSION ABORTED", True, RED)
+        surf.blit(title, (WIDTH // 2 - title.get_width() // 2, HEIGHT // 2 - 140))
+
+        # Task name
+        name_s = font.render(f"Task: {self.task.name}", True, GRAY)
+        surf.blit(name_s, (WIDTH // 2 - name_s.get_width() // 2, HEIGHT // 2 - 80))
+
+        # Time elapsed
+        mins_e = int(self.time_elapsed) // 60
+        secs_e = int(self.time_elapsed) % 60
+        mins_r = int(self.time_remaining) // 60
+        secs_r = int(self.time_remaining) % 60
+        time_s = font.render(
+            f"Time: {mins_e:02d}:{secs_e:02d} elapsed  /  {mins_r:02d}:{secs_r:02d} remaining",
+            True, WHITE)
+        surf.blit(time_s, (WIDTH // 2 - time_s.get_width() // 2, HEIGHT // 2 - 45))
+
+        # Fragments collected
+        coll_s = font.render(f"Fragments mined: {self.collected}", True, YELLOW)
+        surf.blit(coll_s, (WIDTH // 2 - coll_s.get_width() // 2, HEIGHT // 2 - 10))
+
+        # Penalty
+        pen_s = font.render(f"Abort penalty: only 30% kept", True, ORANGE)
+        surf.blit(pen_s, (WIDTH // 2 - pen_s.get_width() // 2, HEIGHT // 2 + 25))
+
+        # Earned
+        earn_s = big.render(f"+{self.earned} fragments", True, YELLOW)
+        surf.blit(earn_s, (WIDTH // 2 - earn_s.get_width() // 2, HEIGHT // 2 + 65))
+
+        # Continue button
+        pygame.draw.rect(surf, GRAY, self.continue_btn, border_radius=4)
+        bl = font.render("Continue", True, BG_COLOR)
+        surf.blit(bl, (self.continue_btn.centerx - bl.get_width() // 2,
+                        self.continue_btn.centery - bl.get_height() // 2))
 
 
 # ---------------------------------------------------------------------------
