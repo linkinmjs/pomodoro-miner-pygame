@@ -1,0 +1,650 @@
+"""Pomodoro Miner - Idle/Pomodoro hybrid game with Pygame."""
+
+import math
+import random
+import pygame
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+WIDTH, HEIGHT = 900, 600
+FPS = 60
+BG_COLOR = (0, 0, 0)
+
+# Colors
+WHITE = (255, 255, 255)
+GRAY = (160, 160, 160)
+DARK_GRAY = (60, 60, 60)
+CYAN = (0, 220, 255)
+YELLOW = (255, 220, 50)
+RED = (220, 60, 60)
+GREEN = (60, 220, 60)
+ORANGE = (255, 160, 40)
+ASTEROID_COLOR = (130, 130, 130)
+
+# Pomodoro duration in seconds (change to e.g. 60 for testing)
+POMODORO_SECONDS = 60  # 1 min for testing (change to 25 * 60 for real use)
+
+# Ship / mission tunables
+ORBIT_RADIUS = 150
+ORBIT_SPEED = 0.4  # radians per second
+SHOOT_INTERVAL_RANGE = (15, 30)  # seconds between shots
+PROJECTILE_SPEED = 200  # px/s
+FRAGMENT_SPEED = 80
+FRAGMENT_DECEL = 0.97
+MAGNET_RADIUS = 60
+MAGNET_STRENGTH = 300
+ORBIT_SETTLE_STRENGTH = 40  # how strongly fragments are pulled to orbit radius
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
+def generate_asteroid_points(cx, cy, base_r, n=14):
+    """Create an irregular polygon (circle with noise)."""
+    pts = []
+    for i in range(n):
+        angle = 2 * math.pi * i / n
+        r = base_r + random.uniform(-base_r * 0.25, base_r * 0.25)
+        pts.append((cx + r * math.cos(angle), cy + r * math.sin(angle)))
+    return pts
+
+
+# ---------------------------------------------------------------------------
+# Talent System
+# ---------------------------------------------------------------------------
+TALENT_DEFS = {
+    "fire_rate":       {"name": "Rapid Fire",      "max": 5, "per_lvl": 0.10, "desc": "-10% shot interval"},
+    "magnet_range":    {"name": "Magnetic Pull",    "max": 5, "per_lvl": 0.20, "desc": "+20% magnet radius"},
+    "double_frag":     {"name": "Double Fragment",  "max": 5, "per_lvl": 0.08, "desc": "+8% double chance"},
+    "orbit_speed":     {"name": "Thruster Boost",   "max": 5, "per_lvl": 0.10, "desc": "+10% orbit speed"},
+    "frag_magnet_str": {"name": "Tractor Beam",     "max": 3, "per_lvl": 0.30, "desc": "+30% magnet strength"},
+}
+TALENT_ORDER = ["fire_rate", "magnet_range", "double_frag", "orbit_speed", "frag_magnet_str"]
+
+
+class TalentTree:
+    def __init__(self):
+        self.levels = {tid: 0 for tid in TALENT_DEFS}
+        self.fragments = 0
+
+    def cost(self, talent_id):
+        next_lvl = self.levels[talent_id] + 1
+        return next_lvl * 5
+
+    def can_upgrade(self, talent_id):
+        d = TALENT_DEFS[talent_id]
+        if self.levels[talent_id] >= d["max"]:
+            return False
+        return self.fragments >= self.cost(talent_id)
+
+    def upgrade(self, talent_id):
+        if not self.can_upgrade(talent_id):
+            return False
+        self.fragments -= self.cost(talent_id)
+        self.levels[talent_id] += 1
+        return True
+
+    def get_multiplier(self, talent_id):
+        """Return multiplier (e.g. 1.2 for +20% at lvl 1)."""
+        d = TALENT_DEFS[talent_id]
+        return 1.0 + d["per_lvl"] * self.levels[talent_id]
+
+    def get_chance(self, talent_id):
+        """Return raw chance (e.g. 0.08 at lvl 1 for double_frag)."""
+        d = TALENT_DEFS[talent_id]
+        return d["per_lvl"] * self.levels[talent_id]
+
+
+# ---------------------------------------------------------------------------
+# Data
+# ---------------------------------------------------------------------------
+class Task:
+    def __init__(self, name: str):
+        self.name = name
+        self.pomodoros = 0
+
+
+# ---------------------------------------------------------------------------
+# Game objects (MissionScene helpers)
+# ---------------------------------------------------------------------------
+class Ship:
+    def __init__(self, cx, cy, orbit_speed=ORBIT_SPEED):
+        self.cx = cx
+        self.cy = cy
+        self.angle = 0.0
+        self.orbit_speed = orbit_speed
+        self.x = cx + ORBIT_RADIUS
+        self.y = cy
+        self.size = 12
+
+    def update(self, dt):
+        self.angle += self.orbit_speed * dt
+        self.x = self.cx + ORBIT_RADIUS * math.cos(self.angle)
+        self.y = self.cy + ORBIT_RADIUS * math.sin(self.angle)
+
+    def draw(self, surf):
+        # Triangle pointing along orbit tangent
+        tangent = self.angle + math.pi / 2
+        cos_t, sin_t = math.cos(tangent), math.sin(tangent)
+        s = self.size
+        tip = (self.x + cos_t * s, self.y + sin_t * s)
+        left = (self.x + math.cos(tangent + 2.4) * s * 0.7,
+                self.y + math.sin(tangent + 2.4) * s * 0.7)
+        right = (self.x + math.cos(tangent - 2.4) * s * 0.7,
+                 self.y + math.sin(tangent - 2.4) * s * 0.7)
+        pygame.draw.polygon(surf, CYAN, [tip, left, right])
+
+
+class Projectile:
+    def __init__(self, x, y, tx, ty):
+        dx, dy = tx - x, ty - y
+        dist = math.hypot(dx, dy) or 1
+        self.x, self.y = x, y
+        self.vx = dx / dist * PROJECTILE_SPEED
+        self.vy = dy / dist * PROJECTILE_SPEED
+        self.alive = True
+
+    def update(self, dt):
+        self.x += self.vx * dt
+        self.y += self.vy * dt
+
+    def draw(self, surf):
+        pygame.draw.circle(surf, YELLOW, (int(self.x), int(self.y)), 3)
+
+
+class Fragment:
+    def __init__(self, x, y, cx, cy):
+        # Launch radially outward from asteroid center
+        angle = math.atan2(y - cy, x - cx) + random.uniform(-0.3, 0.3)
+        speed = random.uniform(FRAGMENT_SPEED * 0.5, FRAGMENT_SPEED)
+        self.x, self.y = x, y
+        self.cx, self.cy = cx, cy
+        self.vx = math.cos(angle) * speed
+        self.vy = math.sin(angle) * speed
+        self.alive = True
+        self.color = random.choice([ORANGE, YELLOW, GREEN, CYAN])
+        self.size = random.randint(3, 6)
+
+    def update(self, dt, ship, magnet_radius=MAGNET_RADIUS, magnet_strength=MAGNET_STRENGTH):
+        # Decelerate
+        self.vx *= FRAGMENT_DECEL
+        self.vy *= FRAGMENT_DECEL
+
+        # Settle toward orbit radius
+        dx_c = self.x - self.cx
+        dy_c = self.y - self.cy
+        dist_c = math.hypot(dx_c, dy_c)
+        if dist_c > 0:
+            current_dir_x = dx_c / dist_c
+            current_dir_y = dy_c / dist_c
+            error = ORBIT_RADIUS - dist_c
+            settle = ORBIT_SETTLE_STRENGTH * dt
+            self.vx += current_dir_x * error * settle / ORBIT_RADIUS
+            self.vy += current_dir_y * error * settle / ORBIT_RADIUS
+
+        # Magnet toward ship if close
+        dx, dy = ship.x - self.x, ship.y - self.y
+        dist = math.hypot(dx, dy)
+        if dist < magnet_radius and dist > 0:
+            pull = magnet_strength * dt
+            self.vx += dx / dist * pull
+            self.vy += dy / dist * pull
+
+        self.x += self.vx * dt
+        self.y += self.vy * dt
+
+        # Collected?
+        if dist < 15:
+            self.alive = False
+            return True  # collected
+        return False
+
+    def draw(self, surf):
+        rect = pygame.Rect(int(self.x) - self.size // 2,
+                           int(self.y) - self.size // 2,
+                           self.size, self.size)
+        pygame.draw.rect(surf, self.color, rect)
+
+
+# ---------------------------------------------------------------------------
+# Scenes
+# ---------------------------------------------------------------------------
+class MenuScene:
+    def __init__(self, game):
+        self.game = game
+        self.input_text = ""
+        self.input_active = False
+        self.scroll_offset = 0
+        # Layout
+        self.input_rect = pygame.Rect(50, 90, 500, 36)
+        self.add_btn = pygame.Rect(560, 90, 80, 36)
+        self.talent_btn = pygame.Rect(WIDTH - 160, 20, 140, 36)
+        self.list_top = 150
+        self.row_h = 44
+
+    # -- events --
+    def handle_event(self, ev):
+        if ev.type == pygame.MOUSEBUTTONDOWN:
+            mx, my = ev.pos
+            # Click input box
+            self.input_active = self.input_rect.collidepoint(mx, my)
+            # Add button
+            if self.add_btn.collidepoint(mx, my):
+                self._add_task()
+            # Talents button
+            if self.talent_btn.collidepoint(mx, my):
+                self.game.scene = TalentScene(self.game)
+                return
+            # Task list buttons
+            self._check_list_click(mx, my)
+            # Scroll
+            if ev.button == 4:
+                self.scroll_offset = max(0, self.scroll_offset - 1)
+            elif ev.button == 5:
+                max_scroll = max(0, len(self.game.tasks) - self._visible_rows())
+                self.scroll_offset = min(max_scroll, self.scroll_offset + 1)
+
+        elif ev.type == pygame.KEYDOWN and self.input_active:
+            if ev.key == pygame.K_RETURN:
+                self._add_task()
+            elif ev.key == pygame.K_BACKSPACE:
+                self.input_text = self.input_text[:-1]
+            else:
+                if ev.unicode and ev.unicode.isprintable() and len(self.input_text) < 40:
+                    self.input_text += ev.unicode
+
+    def _add_task(self):
+        name = self.input_text.strip()
+        if name:
+            self.game.tasks.append(Task(name))
+            self.input_text = ""
+
+    def _visible_rows(self):
+        return max(1, (HEIGHT - self.list_top - 20) // self.row_h)
+
+    def _check_list_click(self, mx, my):
+        vis = self._visible_rows()
+        for i in range(vis):
+            idx = i + self.scroll_offset
+            if idx >= len(self.game.tasks):
+                break
+            row_y = self.list_top + i * self.row_h
+            # Start button
+            start_r = pygame.Rect(WIDTH - 220, row_y + 4, 80, 32)
+            if start_r.collidepoint(mx, my):
+                self.game.start_mission(idx)
+                return
+            # Delete button
+            del_r = pygame.Rect(WIDTH - 130, row_y + 4, 80, 32)
+            if del_r.collidepoint(mx, my):
+                self.game.tasks.pop(idx)
+                self.scroll_offset = clamp(self.scroll_offset, 0,
+                                           max(0, len(self.game.tasks) - vis))
+                return
+
+    # -- update / draw --
+    def update(self, dt):
+        pass
+
+    def draw(self, surf):
+        font = self.game.font
+        big = self.game.font_big
+
+        # Title
+        title = big.render("POMODORO MINER", True, CYAN)
+        surf.blit(title, (WIDTH // 2 - title.get_width() // 2, 20))
+
+        # Fragment counter
+        frag_s = font.render(f"Fragments: {self.game.talents.fragments}", True, YELLOW)
+        surf.blit(frag_s, (20, 20))
+
+        # Talents button
+        pygame.draw.rect(surf, ORANGE, self.talent_btn, border_radius=4)
+        tl = font.render("Talents", True, BG_COLOR)
+        surf.blit(tl, (self.talent_btn.centerx - tl.get_width() // 2,
+                        self.talent_btn.centery - tl.get_height() // 2))
+
+        # Input box
+        col = WHITE if self.input_active else GRAY
+        pygame.draw.rect(surf, col, self.input_rect, 2)
+        txt_surf = font.render(self.input_text, True, WHITE)
+        surf.blit(txt_surf, (self.input_rect.x + 8, self.input_rect.y + 6))
+
+        # Add button
+        pygame.draw.rect(surf, GREEN, self.add_btn, border_radius=4)
+        add_lbl = font.render("Add", True, BG_COLOR)
+        surf.blit(add_lbl, (self.add_btn.centerx - add_lbl.get_width() // 2,
+                            self.add_btn.centery - add_lbl.get_height() // 2))
+
+        # Column headers
+        hdr_y = self.list_top - 24
+        surf.blit(font.render("Task", True, GRAY), (60, hdr_y))
+        surf.blit(font.render("Pomodoros", True, GRAY), (WIDTH - 380, hdr_y))
+
+        # Task list
+        vis = self._visible_rows()
+        for i in range(vis):
+            idx = i + self.scroll_offset
+            if idx >= len(self.game.tasks):
+                break
+            task = self.game.tasks[idx]
+            row_y = self.list_top + i * self.row_h
+
+            # Separator line
+            pygame.draw.line(surf, DARK_GRAY, (50, row_y), (WIDTH - 50, row_y))
+
+            # Name
+            name_s = font.render(task.name, True, WHITE)
+            surf.blit(name_s, (60, row_y + 10))
+
+            # Pomodoro count
+            count_s = font.render(str(task.pomodoros), True, YELLOW)
+            surf.blit(count_s, (WIDTH - 360, row_y + 10))
+
+            # Start button
+            start_r = pygame.Rect(WIDTH - 220, row_y + 4, 80, 32)
+            pygame.draw.rect(surf, GREEN, start_r, border_radius=4)
+            sl = font.render("Start", True, BG_COLOR)
+            surf.blit(sl, (start_r.centerx - sl.get_width() // 2,
+                           start_r.centery - sl.get_height() // 2))
+
+            # Delete button
+            del_r = pygame.Rect(WIDTH - 130, row_y + 4, 80, 32)
+            pygame.draw.rect(surf, RED, del_r, border_radius=4)
+            dl = font.render("Delete", True, BG_COLOR)
+            surf.blit(dl, (del_r.centerx - dl.get_width() // 2,
+                           del_r.centery - dl.get_height() // 2))
+
+        # Scroll hint
+        if len(self.game.tasks) > vis:
+            hint = font.render(f"(scroll: {self.scroll_offset + 1}-"
+                               f"{min(self.scroll_offset + vis, len(self.game.tasks))}"
+                               f" / {len(self.game.tasks)})", True, DARK_GRAY)
+            surf.blit(hint, (WIDTH // 2 - hint.get_width() // 2, HEIGHT - 30))
+
+
+class TalentScene:
+    def __init__(self, game):
+        self.game = game
+        self.back_btn = pygame.Rect(WIDTH // 2 - 60, HEIGHT - 55, 120, 36)
+        self.upgrade_btns = []
+        start_y = 110
+        row_h = 80
+        for i in range(len(TALENT_ORDER)):
+            btn = pygame.Rect(WIDTH - 180, start_y + i * row_h + 20, 100, 32)
+            self.upgrade_btns.append(btn)
+
+    def handle_event(self, ev):
+        if ev.type == pygame.MOUSEBUTTONDOWN:
+            mx, my = ev.pos
+            if self.back_btn.collidepoint(mx, my):
+                self.game.scene = self.game.menu
+                return
+            for i, btn in enumerate(self.upgrade_btns):
+                if btn.collidepoint(mx, my):
+                    tid = TALENT_ORDER[i]
+                    self.game.talents.upgrade(tid)
+
+    def update(self, dt):
+        pass
+
+    def draw(self, surf):
+        font = self.game.font
+        big = self.game.font_big
+        talents = self.game.talents
+
+        # Title
+        title = big.render("TALENTS", True, ORANGE)
+        surf.blit(title, (WIDTH // 2 - title.get_width() // 2, 15))
+
+        # Fragment count
+        frag_s = font.render(f"Fragments: {talents.fragments}", True, YELLOW)
+        surf.blit(frag_s, (WIDTH // 2 - frag_s.get_width() // 2, 60))
+
+        # Talent rows
+        start_y = 110
+        row_h = 80
+        for i, tid in enumerate(TALENT_ORDER):
+            d = TALENT_DEFS[tid]
+            lvl = talents.levels[tid]
+            y = start_y + i * row_h
+
+            # Separator
+            pygame.draw.line(surf, DARK_GRAY, (40, y), (WIDTH - 40, y))
+
+            # Name and level
+            name_s = font.render(f"{d['name']}  Lv {lvl}/{d['max']}", True, WHITE)
+            surf.blit(name_s, (60, y + 8))
+
+            # Description
+            desc_s = font.render(d["desc"], True, GRAY)
+            surf.blit(desc_s, (60, y + 32))
+
+            # Level pips
+            pip_x = 350
+            for p in range(d["max"]):
+                color = CYAN if p < lvl else DARK_GRAY
+                pygame.draw.rect(surf, color, (pip_x + p * 18, y + 10, 12, 12))
+
+            # Upgrade button
+            btn = self.upgrade_btns[i]
+            if lvl >= d["max"]:
+                pygame.draw.rect(surf, DARK_GRAY, btn, border_radius=4)
+                bl = font.render("MAXED", True, GRAY)
+            elif talents.can_upgrade(tid):
+                pygame.draw.rect(surf, GREEN, btn, border_radius=4)
+                bl = font.render(f"{talents.cost(tid)} frags", True, BG_COLOR)
+            else:
+                pygame.draw.rect(surf, DARK_GRAY, btn, border_radius=4)
+                bl = font.render(f"{talents.cost(tid)} frags", True, GRAY)
+            surf.blit(bl, (btn.centerx - bl.get_width() // 2,
+                           btn.centery - bl.get_height() // 2))
+
+        # Back button
+        pygame.draw.rect(surf, RED, self.back_btn, border_radius=4)
+        bl = font.render("Back", True, WHITE)
+        surf.blit(bl, (self.back_btn.centerx - bl.get_width() // 2,
+                        self.back_btn.centery - bl.get_height() // 2))
+
+
+class MissionScene:
+    def __init__(self, game, task):
+        self.game = game
+        self.task = task
+        self.remaining = POMODORO_SECONDS  # seconds
+        self.collected = 0
+
+        cx, cy = WIDTH // 2, HEIGHT // 2 + 30
+        self.cx, self.cy = cx, cy
+
+        # Apply talent multipliers
+        t = game.talents
+        eff_orbit_speed = ORBIT_SPEED * t.get_multiplier("orbit_speed")
+        self.eff_magnet_radius = MAGNET_RADIUS * t.get_multiplier("magnet_range")
+        self.eff_magnet_strength = MAGNET_STRENGTH * t.get_multiplier("frag_magnet_str")
+        self.eff_shoot_interval_mult = 1.0 / t.get_multiplier("fire_rate")  # lower = faster
+        self.double_frag_chance = t.get_chance("double_frag")
+
+        self.ship = Ship(cx, cy, eff_orbit_speed)
+        self.asteroid_pts = generate_asteroid_points(cx, cy, 40)
+        self.projectiles: list[Projectile] = []
+        self.fragments: list[Fragment] = []
+
+        self._next_shot_time()
+        self.complete = False
+
+        # Abort button
+        self.abort_btn = pygame.Rect(WIDTH // 2 - 70, HEIGHT - 50, 140, 36)
+
+    def _next_shot_time(self):
+        lo, hi = SHOOT_INTERVAL_RANGE
+        self.shoot_timer = random.uniform(lo, hi) * self.eff_shoot_interval_mult
+
+    # -- events --
+    def handle_event(self, ev):
+        if ev.type == pygame.MOUSEBUTTONDOWN:
+            if self.abort_btn.collidepoint(ev.pos):
+                # Abort: fragments NOT kept
+                self.game.set_scene("menu")
+
+    # -- update --
+    def update(self, dt):
+        if self.complete:
+            return
+
+        # Timer
+        self.remaining -= dt
+        if self.remaining <= 0:
+            self.remaining = 0
+            self.task.pomodoros += 1
+            self.complete = True
+            # Award fragments on completion
+            self.game.talents.fragments += self.collected
+            # Brief delay then return
+            pygame.time.set_timer(pygame.USEREVENT + 1, 1500, loops=1)
+            return
+
+        # Ship
+        self.ship.update(dt)
+
+        # Shooting
+        self.shoot_timer -= dt
+        if self.shoot_timer <= 0:
+            self.projectiles.append(
+                Projectile(self.ship.x, self.ship.y, self.cx, self.cy))
+            self._next_shot_time()
+
+        # Projectiles
+        for p in self.projectiles:
+            p.update(dt)
+            # Hit asteroid center?
+            if math.hypot(p.x - self.cx, p.y - self.cy) < 35:
+                p.alive = False
+                # Spawn fragment(s) from asteroid surface
+                self.fragments.append(Fragment(self.cx, self.cy, self.cx, self.cy))
+                if random.random() < self.double_frag_chance:
+                    self.fragments.append(Fragment(self.cx, self.cy, self.cx, self.cy))
+
+        self.projectiles = [p for p in self.projectiles if p.alive]
+
+        # Fragments
+        for f in self.fragments:
+            if f.update(dt, self.ship, self.eff_magnet_radius, self.eff_magnet_strength):
+                self.collected += 1
+        self.fragments = [f for f in self.fragments if f.alive]
+
+    # -- draw --
+    def draw(self, surf):
+        font = self.game.font
+        big = self.game.font_big
+
+        # Timer
+        mins = int(self.remaining) // 60
+        secs = int(self.remaining) % 60
+        timer_str = f"{mins:02d}:{secs:02d}"
+        timer_surf = big.render(timer_str, True, WHITE)
+        surf.blit(timer_surf, (WIDTH // 2 - timer_surf.get_width() // 2, 15))
+
+        # Task name
+        task_surf = font.render(self.task.name, True, GRAY)
+        surf.blit(task_surf, (WIDTH // 2 - task_surf.get_width() // 2, 55))
+
+        # Collected counter
+        res_surf = font.render(f"Fragments: {self.collected}", True, YELLOW)
+        surf.blit(res_surf, (20, 20))
+
+        # Asteroid
+        pygame.draw.polygon(surf, ASTEROID_COLOR, self.asteroid_pts)
+        pygame.draw.polygon(surf, GRAY, self.asteroid_pts, 2)
+
+        # Ship
+        self.ship.draw(surf)
+
+        # Projectiles
+        for p in self.projectiles:
+            p.draw(surf)
+
+        # Fragments
+        for f in self.fragments:
+            f.draw(surf)
+
+        # Orbit ring (subtle)
+        pygame.draw.circle(surf, (30, 30, 40), (self.cx, self.cy),
+                           ORBIT_RADIUS, 1)
+
+        # Abort button
+        pygame.draw.rect(surf, RED, self.abort_btn, border_radius=4)
+        al = font.render("Abort Mission", True, WHITE)
+        surf.blit(al, (self.abort_btn.centerx - al.get_width() // 2,
+                        self.abort_btn.centery - al.get_height() // 2))
+
+        # Completion overlay
+        if self.complete:
+            overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 120))
+            surf.blit(overlay, (0, 0))
+            done = big.render("MISSION COMPLETE!", True, GREEN)
+            surf.blit(done, (WIDTH // 2 - done.get_width() // 2,
+                             HEIGHT // 2 - 30))
+            earned = font.render(f"+{self.collected} fragments earned!", True, YELLOW)
+            surf.blit(earned, (WIDTH // 2 - earned.get_width() // 2,
+                               HEIGHT // 2 + 15))
+
+
+# ---------------------------------------------------------------------------
+# Game
+# ---------------------------------------------------------------------------
+class Game:
+    def __init__(self):
+        pygame.init()
+        self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        pygame.display.set_caption("Pomodoro Miner")
+        self.clock = pygame.time.Clock()
+        self.font = pygame.font.SysFont("consolas", 18)
+        self.font_big = pygame.font.SysFont("consolas", 36, bold=True)
+
+        self.tasks: list[Task] = []
+        self.talents = TalentTree()
+        self.menu = MenuScene(self)
+        self.scene = self.menu
+        self.running = True
+
+    def set_scene(self, name):
+        if name == "menu":
+            self.scene = self.menu
+
+    def start_mission(self, task_idx):
+        self.scene = MissionScene(self, self.tasks[task_idx])
+
+    def run(self):
+        while self.running:
+            dt = self.clock.tick(FPS) / 1000.0
+
+            for ev in pygame.event.get():
+                if ev.type == pygame.QUIT:
+                    self.running = False
+                elif ev.type == pygame.USEREVENT + 1:
+                    # Mission complete auto-return
+                    self.set_scene("menu")
+                else:
+                    self.scene.handle_event(ev)
+
+            self.scene.update(dt)
+
+            self.screen.fill(BG_COLOR)
+            self.scene.draw(self.screen)
+            pygame.display.flip()
+
+        pygame.quit()
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+    Game().run()
