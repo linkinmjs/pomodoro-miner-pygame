@@ -23,53 +23,58 @@ Chakra Petch Bold/Regular elegida como reemplazo (geometrica, estilo tech).
 
 ---
 
-## Fase 2: Pantalla de introduccion (IntroScene)
+## Fase 2: Pantalla de introduccion (IntroScene) ✓
 
 **Objetivo**: Crear la escena de bienvenida con titulo y efecto typewriter.
 
 **Referencia spec**: Seccion 8
 
-- [ ] Implementar IntroScene con las 3 etapas: fade-in titulo, pausa, typewriter
-- [ ] Efecto typewriter: renderizar texto letra por letra (~30 chars/s)
-- [ ] Skip: click o tecla en cualquier momento salta directo al menu
-- [ ] Transicion fade al MenuScene al terminar o al skipear
-- [ ] Escribir el texto de bienvenida (2-3 oraciones, tono calmo/evocador)
-- [ ] IntroScene solo se muestra al iniciar el juego (no al volver de mision)
+- [x] Implementar IntroScene con 4 fases: title_fade, title_hold, typing, done
+- [x] Efecto typewriter: renderizar texto letra por letra (~28 chars/s)
+- [x] Skip: click o tecla en cualquier momento salta directo al menu con fade
+- [x] Transicion fade al MenuScene al terminar o al skipear
+- [x] Texto: "Bienvenido a POMI Corp." + instrucciones de tareas/recursos
+- [x] IntroScene solo se muestra al iniciar el juego (no al volver de mision)
 
 ---
 
-## Fase 3: Pantalla de ajustes (SettingsScene)
+## Fase 3: Pantalla de ajustes (SettingsScene) ✓
 
 **Objetivo**: Permitir al jugador configurar volumen y duraciones.
 
 **Referencia spec**: Seccion 9
 
-- [ ] Agregar boton "Settings" al MenuScene
-- [ ] Implementar SettingsScene con layout centrado
-- [ ] Slider de volumen SFX (0-100%, controla pygame.mixer volume)
-- [ ] Selector de duracion de pomodoro (botones < > con valores predefinidos)
-- [ ] Selector de duracion de descanso (botones < > con valores predefinidos)
-- [ ] Boton "Back" para volver al menu
-- [ ] Almacenar configuracion en el objeto Game (accesible por otras escenas)
-- [ ] Reemplazar constante POMODORO_SECONDS por el valor configurable
+- [x] Agregar boton "Settings" al MenuScene (junto a "Talents")
+- [x] Implementar SettingsScene con layout centrado
+- [x] Slider de volumen SFX (0-100%, arrastrable, default 70%)
+- [x] Slider de volumen Ambiente (0-100%, arrastrable, default 50%)
+- [x] Selector de duracion de pomodoro (< > con valores: 1,5,15,25,30,45,60 min)
+- [x] Selector de duracion de descanso (< > con valores: 1,3,5,10 min)
+- [x] Boton "Back" para volver al menu
+- [x] Configuracion almacenada en Game (sfx_volume, ambient_volume, pomodoro_minutes, break_minutes)
+- [x] MissionScene y AbortScene usan `game.pomodoro_minutes` en vez de constante
+
+**Notas**: Los sliders aun no estan conectados al AudioManager (se hara en Fase 5).
+POMODORO_SECONDS se mantiene como constante legacy pero ya no se usa en el gameplay.
 
 ---
 
-## Fase 4: Sistema de descanso (BreakScene)
+## Fase 4: Sistema de descanso (Break banner) ✓
 
 **Objetivo**: Implementar la pausa entre misiones de la tecnica Pomodoro.
 
 **Referencia spec**: Seccion 10
 
-- [ ] Implementar BreakScene con dos fases: countdown y ready
-- [ ] Fase countdown: temporizador descendente con texto "Take a break"
-- [ ] Fase ready: mensaje "Ready for next mission" con pulse de opacidad
-  - Opacidad: oscila entre 40%-100% con sin(), frecuencia ~0.8 Hz
-- [ ] Mostrar info sutil: tarea completada, fragmentos ganados
-- [ ] Boton discreto "Skip" durante countdown para volver al menu
-- [ ] Click/tecla durante fase ready para volver al menu
-- [ ] Modificar flujo: MissionScene completa -> BreakScene -> MenuScene
-- [ ] Usar duracion de descanso desde Settings (default 5 min)
+- [x] Banner persistente en parte inferior (36px), visible en Menu/Talents/Settings
+- [x] Fase countdown: "Break MM:SS" centrado + info de mision a la izquierda
+- [x] Fase ready: "Ready for mission" en GREEN con pulse sinusoidal (0.8 Hz, 40%-100%)
+- [x] Estado del break vive en Game (break_active, break_remaining, break_ready)
+- [x] update_break(dt) en game loop principal, draw_break_banner(surf) sobre escenas de menu
+- [x] Se activa al completar mision (_start_break), se desactiva al iniciar nueva (dismiss_break)
+- [x] Duracion usa game.break_minutes (configurable en Settings)
+
+**Notas**: Cambio de diseno: se paso de escena independiente (BreakScene) a banner
+persistente. El jugador puede interactuar con menu/talents/settings mientras el break corre.
 
 ---
 
@@ -83,7 +88,9 @@ Chakra Petch Bold/Regular elegida como reemplazo (geometrica, estilo tech).
 - [ ] Obtener/crear los archivos de audio (ver catalogo en spec)
 - [ ] Implementar clase/modulo AudioManager:
   - Cargar todos los sonidos al inicio
-  - Metodo `play(sound_name)` con volumen configurable
+  - Dos canales de volumen: SFX y Ambiente (controlados desde Settings)
+  - Metodo `play(sound_name)` usa volumen SFX
+  - Metodo `play_ambient(sound_name)` usa volumen Ambiente
   - Manejo graceful si un archivo no existe (sin crash)
 - [ ] Integrar SFX en los eventos:
   - [ ] Click en botones del menu
@@ -96,7 +103,8 @@ Chakra Petch Bold/Regular elegida como reemplazo (geometrica, estilo tech).
   - [ ] Upgrade de talento
   - [ ] Titulo intro / typewriter
   - [ ] Fin de descanso (break ready chime)
-- [ ] Conectar volumen al slider de Settings
+- [ ] Conectar volumen SFX al slider de Settings (`game.sfx_volume`)
+- [ ] Conectar volumen Ambiente al slider de Settings (`game.ambient_volume`)
 - [ ] Probar compatibilidad con Pygbag (web)
 
 ---
@@ -167,6 +175,8 @@ Chakra Petch Bold/Regular elegida como reemplazo (geometrica, estilo tech).
 > durante el desarrollo.
 
 - El juego ya es compatible con Pygbag (async loop implementado).
-- POMODORO_SECONDS esta en 60s para testing. Sera reemplazado por valor configurable en Fase 3.
+- POMODORO_SECONDS se mantiene como constante legacy; el gameplay usa `game.pomodoro_minutes`.
 - La IntroScene solo se muestra al arrancar, no entre misiones.
 - El BreakScene se activa solo al completar mision, no al abortar.
+- Settings tiene dos sliders (SFX y Ambiente) listos para conectar al AudioManager en Fase 5.
+- Fonts CFF (Orbitron, Exo2) no son compatibles con SDL_ttf. Usar solo TrueType puras.

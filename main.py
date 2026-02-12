@@ -31,9 +31,6 @@ GREEN = (60, 220, 60)
 ORANGE = (255, 160, 40)
 ASTEROID_COLOR = (130, 130, 130)
 
-# Pomodoro duration in seconds (change to e.g. 60 for testing)
-POMODORO_SECONDS = 60  # 1 min for testing (change to 25 * 60 for real use)
-
 # Ship / mission tunables
 ORBIT_RADIUS = 150
 ORBIT_SPEED = 0.4  # radians per second
@@ -396,6 +393,7 @@ class MenuScene:
         self.input_rect = pygame.Rect(50, 90, 500, 36)
         self.add_btn = pygame.Rect(560, 90, 80, 36)
         self.talent_btn = pygame.Rect(WIDTH - 160, 20, 140, 36)
+        self.settings_btn = pygame.Rect(WIDTH - 310, 20, 140, 36)
         self.list_top = 150
         self.row_h = 44
 
@@ -411,6 +409,10 @@ class MenuScene:
             # Talents button
             if self.talent_btn.collidepoint(mx, my):
                 self.game.scene = TalentScene(self.game)
+                return
+            # Settings button
+            if self.settings_btn.collidepoint(mx, my):
+                self.game.scene = SettingsScene(self.game)
                 return
             # Task list buttons
             self._check_list_click(mx, my)
@@ -473,6 +475,12 @@ class MenuScene:
         # Fragment counter
         frag_s = font.render(f"Fragments: {self.game.talents.fragments}", True, YELLOW)
         surf.blit(frag_s, (20, 20))
+
+        # Settings button
+        pygame.draw.rect(surf, GRAY, self.settings_btn, border_radius=4)
+        sl = font.render("Settings", True, BG_COLOR)
+        surf.blit(sl, (self.settings_btn.centerx - sl.get_width() // 2,
+                        self.settings_btn.centery - sl.get_height() // 2))
 
         # Talents button
         pygame.draw.rect(surf, ORANGE, self.talent_btn, border_radius=4)
@@ -623,11 +631,169 @@ class TalentScene:
                         self.back_btn.centery - bl.get_height() // 2))
 
 
+class SettingsScene:
+    """Settings screen with volume sliders and duration selectors."""
+
+    SLIDER_W = 260
+    SLIDER_H = 8
+    KNOB_R = 10
+
+    def __init__(self, game):
+        self.game = game
+        self.back_btn = pygame.Rect(WIDTH // 2 - 60, HEIGHT - 55, 120, 36)
+
+        # Layout positions (centered)
+        cx = WIDTH // 2
+        self.label_x = cx - 220
+        self.slider_x = cx - 40
+        self.row_y = [150, 220, 300, 370]  # sfx, ambient, pomodoro, break
+
+        # Slider rects (for hit detection)
+        self.sfx_slider = pygame.Rect(self.slider_x, self.row_y[0] - self.KNOB_R,
+                                       self.SLIDER_W, self.KNOB_R * 2)
+        self.amb_slider = pygame.Rect(self.slider_x, self.row_y[1] - self.KNOB_R,
+                                       self.SLIDER_W, self.KNOB_R * 2)
+
+        # Duration selector rects
+        btn_w, btn_h = 36, 32
+        sel_cx = self.slider_x + self.SLIDER_W // 2
+        self.pom_left = pygame.Rect(sel_cx - 100, self.row_y[2] - btn_h // 2, btn_w, btn_h)
+        self.pom_right = pygame.Rect(sel_cx + 100 - btn_w, self.row_y[2] - btn_h // 2, btn_w, btn_h)
+        self.brk_left = pygame.Rect(sel_cx - 100, self.row_y[3] - btn_h // 2, btn_w, btn_h)
+        self.brk_right = pygame.Rect(sel_cx + 100 - btn_w, self.row_y[3] - btn_h // 2, btn_w, btn_h)
+
+        self.dragging = None  # "sfx" or "ambient"
+
+    def _slider_value_from_x(self, mx):
+        return clamp((mx - self.slider_x) / self.SLIDER_W, 0.0, 1.0)
+
+    def handle_event(self, ev):
+        if ev.type == pygame.MOUSEBUTTONDOWN:
+            mx, my = ev.pos
+            if self.back_btn.collidepoint(mx, my):
+                self.game.scene = self.game.menu
+                return
+            # Slider drag start
+            if self.sfx_slider.collidepoint(mx, my):
+                self.dragging = "sfx"
+                self.game.sfx_volume = self._slider_value_from_x(mx)
+            elif self.amb_slider.collidepoint(mx, my):
+                self.dragging = "ambient"
+                self.game.ambient_volume = self._slider_value_from_x(mx)
+            # Duration selectors
+            elif self.pom_left.collidepoint(mx, my):
+                self._cycle_option("pomodoro", -1)
+            elif self.pom_right.collidepoint(mx, my):
+                self._cycle_option("pomodoro", 1)
+            elif self.brk_left.collidepoint(mx, my):
+                self._cycle_option("break", -1)
+            elif self.brk_right.collidepoint(mx, my):
+                self._cycle_option("break", 1)
+
+        elif ev.type == pygame.MOUSEBUTTONUP:
+            self.dragging = None
+
+        elif ev.type == pygame.MOUSEMOTION and self.dragging:
+            mx = ev.pos[0]
+            val = self._slider_value_from_x(mx)
+            if self.dragging == "sfx":
+                self.game.sfx_volume = val
+            elif self.dragging == "ambient":
+                self.game.ambient_volume = val
+
+    def _cycle_option(self, which, direction):
+        if which == "pomodoro":
+            opts = self.game._pomodoro_options
+            idx = opts.index(self.game.pomodoro_minutes) if self.game.pomodoro_minutes in opts else 0
+            idx = (idx + direction) % len(opts)
+            self.game.pomodoro_minutes = opts[idx]
+        else:
+            opts = self.game._break_options
+            idx = opts.index(self.game.break_minutes) if self.game.break_minutes in opts else 0
+            idx = (idx + direction) % len(opts)
+            self.game.break_minutes = opts[idx]
+
+    def update(self, dt):
+        pass
+
+    def _draw_slider(self, surf, x, y, value, label, font):
+        # Label
+        lbl = font.render(label, True, WHITE)
+        surf.blit(lbl, (self.label_x, y - lbl.get_height() // 2))
+
+        # Track background
+        track_rect = pygame.Rect(x, y - self.SLIDER_H // 2, self.SLIDER_W, self.SLIDER_H)
+        pygame.draw.rect(surf, DARK_GRAY, track_rect, border_radius=4)
+
+        # Track fill
+        fill_w = int(self.SLIDER_W * value)
+        if fill_w > 0:
+            fill_rect = pygame.Rect(x, y - self.SLIDER_H // 2, fill_w, self.SLIDER_H)
+            pygame.draw.rect(surf, CYAN, fill_rect, border_radius=4)
+
+        # Knob
+        knob_x = x + fill_w
+        pygame.draw.circle(surf, WHITE, (knob_x, y), self.KNOB_R)
+
+        # Percentage
+        pct = font.render(f"{int(value * 100)}%", True, GRAY)
+        surf.blit(pct, (x + self.SLIDER_W + 16, y - pct.get_height() // 2))
+
+    def _draw_selector(self, surf, y, value_str, left_btn, right_btn, label, font):
+        # Label
+        lbl = font.render(label, True, WHITE)
+        surf.blit(lbl, (self.label_x, y - lbl.get_height() // 2))
+
+        # Left arrow
+        pygame.draw.rect(surf, DARK_GRAY, left_btn, border_radius=4)
+        al = font.render("<", True, WHITE)
+        surf.blit(al, (left_btn.centerx - al.get_width() // 2,
+                        left_btn.centery - al.get_height() // 2))
+
+        # Value
+        val_s = font.render(value_str, True, CYAN)
+        cx = (left_btn.right + right_btn.left) // 2
+        surf.blit(val_s, (cx - val_s.get_width() // 2, y - val_s.get_height() // 2))
+
+        # Right arrow
+        pygame.draw.rect(surf, DARK_GRAY, right_btn, border_radius=4)
+        ar = font.render(">", True, WHITE)
+        surf.blit(ar, (right_btn.centerx - ar.get_width() // 2,
+                        right_btn.centery - ar.get_height() // 2))
+
+    def draw(self, surf):
+        font = self.game.font
+
+        # Title
+        title = self.game.font_title.render("SETTINGS", True, WHITE)
+        surf.blit(title, (WIDTH // 2 - title.get_width() // 2, 50))
+
+        # Sliders
+        self._draw_slider(surf, self.slider_x, self.row_y[0],
+                          self.game.sfx_volume, "SFX Volume", font)
+        self._draw_slider(surf, self.slider_x, self.row_y[1],
+                          self.game.ambient_volume, "Ambience", font)
+
+        # Duration selectors
+        self._draw_selector(surf, self.row_y[2],
+                            f"{self.game.pomodoro_minutes} min",
+                            self.pom_left, self.pom_right, "Pomodoro", font)
+        self._draw_selector(surf, self.row_y[3],
+                            f"{self.game.break_minutes} min",
+                            self.brk_left, self.brk_right, "Break", font)
+
+        # Back button
+        pygame.draw.rect(surf, RED, self.back_btn, border_radius=4)
+        bl = font.render("Back", True, WHITE)
+        surf.blit(bl, (self.back_btn.centerx - bl.get_width() // 2,
+                        self.back_btn.centery - bl.get_height() // 2))
+
+
 class MissionScene:
     def __init__(self, game, task):
         self.game = game
         self.task = task
-        self.remaining = POMODORO_SECONDS  # seconds
+        self.remaining = game.pomodoro_minutes * 60  # seconds
         self.collected = 0
 
         cx, cy = WIDTH // 2, HEIGHT // 2 + 30
@@ -687,7 +853,9 @@ class MissionScene:
             self.complete = True
             # Award fragments on completion
             self.game.talents.fragments += self.collected
-            # Brief delay then return
+            # Store mission result for BreakScene
+            self.game._last_mission = {"task": self.task.name, "fragments": self.collected}
+            # Brief delay then transition to break
             pygame.time.set_timer(pygame.USEREVENT + 1, 1500, loops=1)
             return
 
@@ -796,7 +964,7 @@ class AbortScene:
         self.collected = collected
         self.earned = int(collected * self.PENALTY)
         self.time_remaining = time_remaining
-        self.time_elapsed = POMODORO_SECONDS - time_remaining
+        self.time_elapsed = game.pomodoro_minutes * 60 - time_remaining
 
         # Award the 30% immediately
         self.game.talents.fragments += self.earned
@@ -944,6 +1112,22 @@ class Game:
         self.tasks: list[Task] = []
         self.talents = TalentTree()
         self.total_pomodoros = 0
+
+        # Settings (configurable via SettingsScene)
+        self.sfx_volume = 0.7           # 0.0 - 1.0
+        self.ambient_volume = 0.5       # 0.0 - 1.0
+        self.pomodoro_minutes = 25      # minutes
+        self.break_minutes = 5          # minutes
+        self._pomodoro_options = [1, 5, 15, 25, 30, 45, 60]
+        self._break_options = [1, 3, 5, 10]
+
+        # Break timer (persistent across menu scenes)
+        self.break_active = False
+        self.break_remaining = 0.0
+        self.break_ready = False
+        self.break_ready_timer = 0.0
+        self._break_task_name = ""
+        self._break_fragments = 0
         self.story_images = self._load_story_images()
         self.menu = MenuScene(self)
         self.scene = IntroScene(self)
@@ -968,7 +1152,69 @@ class Game:
         if name == "menu":
             self.scene = FadeTransition(self, self.scene, self.menu)
 
+    def _start_break(self):
+        info = getattr(self, "_last_mission", {"task": "", "fragments": 0})
+        self.break_active = True
+        self.break_remaining = self.break_minutes * 60
+        self.break_ready = False
+        self.break_ready_timer = 0.0
+        self._break_task_name = info["task"]
+        self._break_fragments = info["fragments"]
+        self.set_scene("menu")
+
+    def update_break(self, dt):
+        """Tick the break timer (called from main loop)."""
+        if not self.break_active:
+            return
+        if self.break_ready:
+            self.break_ready_timer += dt
+            return
+        self.break_remaining -= dt
+        if self.break_remaining <= 0:
+            self.break_remaining = 0
+            self.break_ready = True
+            self.break_ready_timer = 0.0
+
+    def draw_break_banner(self, surf):
+        """Draw break status bar at the bottom of any menu scene."""
+        if not self.break_active:
+            return
+
+        BANNER_H = 36
+        banner_y = HEIGHT - BANNER_H
+        # Background bar
+        pygame.draw.rect(surf, (15, 15, 25), (0, banner_y, WIDTH, BANNER_H))
+        pygame.draw.line(surf, DARK_GRAY, (0, banner_y), (WIDTH, banner_y))
+
+        if not self.break_ready:
+            # Countdown mode
+            mins = int(self.break_remaining) // 60
+            secs = int(self.break_remaining) % 60
+            timer_str = f"Break  {mins:02d}:{secs:02d}"
+            timer_surf = self.font_small.render(timer_str, True, GRAY)
+            surf.blit(timer_surf, (WIDTH // 2 - timer_surf.get_width() // 2,
+                                    banner_y + BANNER_H // 2 - timer_surf.get_height() // 2))
+            # Task info (left side, subtle)
+            info = self.font_small.render(
+                f"{self._break_task_name}  ·  +{self._break_fragments} frags",
+                True, DARK_GRAY)
+            surf.blit(info, (12, banner_y + BANNER_H // 2 - info.get_height() // 2))
+        else:
+            # Ready mode - pulsing green text
+            t = self.break_ready_timer * 0.8 * 2 * math.pi
+            alpha = 100 + int(155 * (0.5 + 0.5 * math.sin(t)))
+            ready_surf = self.font.render("Ready for mission", True, GREEN)
+            ready_surf.set_alpha(alpha)
+            surf.blit(ready_surf, (WIDTH // 2 - ready_surf.get_width() // 2,
+                                    banner_y + BANNER_H // 2 - ready_surf.get_height() // 2))
+
+    def dismiss_break(self):
+        """Called when player starts a new mission - clear the break state."""
+        self.break_active = False
+        self.break_ready = False
+
     def start_mission(self, task_idx):
+        self.dismiss_break()
         task = self.tasks[task_idx]
         if self.story_images:
             # Pick image based on total pomodoros completed (0-indexed)
@@ -986,15 +1232,19 @@ class Game:
                 if ev.type == pygame.QUIT:
                     self.running = False
                 elif ev.type == pygame.USEREVENT + 1:
-                    # Mission complete auto-return
-                    self.set_scene("menu")
+                    # Mission complete -> break
+                    self._start_break()
                 else:
                     self.scene.handle_event(ev)
 
+            self.update_break(dt)
             self.scene.update(dt)
 
             self.screen.fill(BG_COLOR)
             self.scene.draw(self.screen)
+            # Break banner on top of menu scenes
+            if isinstance(self.scene, (MenuScene, TalentScene, SettingsScene)):
+                self.draw_break_banner(self.screen)
             pygame.display.flip()
             await asyncio.sleep(0)
 

@@ -48,16 +48,19 @@ SettingsScene      - Ajustes: volumen, duracion de pomodoro
 TalentScene        - Arbol de mejoras permanentes
 StoryScene         - Imagen narrativa pre-mision (si hay assets)
 MissionScene       - Gameplay principal (nave orbitando + mineria)
-BreakScene         - Descanso entre misiones con contador
 AbortScene         - Resumen al abortar una mision
 FadeTransition     - Transicion fade-to-black entre escenas
 ```
+
+**Break banner**: No es una escena independiente. Es un banner persistente
+dibujado en la parte inferior de MenuScene, TalentScene y SettingsScene.
+El estado del break vive en el objeto Game.
 
 ### Flujo de escenas
 
 ```
 Intro -> Menu                                         (primera vez)
-Menu -> [Story] -> Mission -> Break -> Menu           (completada)
+Menu -> [Story] -> Mission -> Menu (con break banner) (completada)
 Menu -> [Story] -> Mission -> Abort -> Menu           (abortada)
 Menu -> Talents -> Menu
 Menu -> Settings -> Menu
@@ -141,27 +144,29 @@ Escena que se muestra **una sola vez** al abrir el juego, antes del menu.
 
 ### Secuencia
 
-1. Fondo negro. Aparece el titulo del juego **"POMODORO MINER"** con fade-in
-   centrado en pantalla.
-2. Tras una breve pausa (~1s), comienza a aparecer un texto de bienvenida
-   con **efecto typewriter** (letra por letra, como si se estuviera escribiendo).
-3. El texto es una presentacion breve y atmosferica del juego. Ejemplo:
+1. Fondo negro. Aparece el titulo **"POMI Corp."** con fade-in (1s)
+   centrado en pantalla, usando `font_title` en color CYAN.
+2. Tras una breve pausa (~0.6s), comienza a aparecer el texto de bienvenida
+   con **efecto typewriter** (letra por letra, ~28 chars/s).
+3. Texto actual:
 
-   > *"En los confines del espacio, el tiempo es tu recurso mas valioso...*
-   > *Cada minuto de trabajo alimenta tu nave. Cada pomodoro te acerca*
-   > *a las estrellas."*
+   > *"Bienvenido a POMI Corp."*
+   > *"Cargue sus tareas para comenzar la mision."*
+   > *"Aproveche los recursos para optimizar la nave."*
 
-4. Al terminar el texto (o al hacer click/presionar cualquier tecla en
-   cualquier momento), transicion fade al MenuScene.
+4. Al terminar el texto, pausa de 1.5s y auto-avance al MenuScene con fade.
+5. El jugador puede saltear en cualquier momento (click o tecla).
 
 ### Parametros
 
-| Parametro              | Valor sugerido | Notas                                     |
-| ---------------------- | -------------- | ----------------------------------------- |
-| Velocidad typewriter   | ~30 chars/s    | Ritmo de lectura comodo                   |
-| Pausa entre lineas     | ~0.4s          | Separacion natural entre oraciones        |
-| Delay antes del texto  | ~1.0s          | Tiempo para que el titulo se asiente      |
-| Skip                   | click/tecla    | El jugador puede saltear en cualquier momento |
+| Parametro              | Valor actual   | Constante en IntroScene       |
+| ---------------------- | -------------- | ----------------------------- |
+| Fade-in titulo         | 1.0s           | `TITLE_FADE_DURATION`         |
+| Pausa post-titulo      | 0.6s           | `TITLE_HOLD`                  |
+| Velocidad typewriter   | ~28 chars/s    | `CHAR_DELAY = 0.035`          |
+| Pausa entre lineas     | 0.4s           | `LINE_PAUSE`                  |
+| Pausa final            | 1.5s           | `END_HOLD`                    |
+| Skip                   | click/tecla    | Salta directo al menu con fade|
 
 ### Notas de diseno
 - El tono debe ser **calmo y evocador**, coherente con la filosofia relajante.
@@ -179,79 +184,82 @@ Accesible desde el menu principal mediante un boton **"Settings"**.
 | Ajuste                | Control           | Rango / Opciones            | Default     |
 | --------------------- | ----------------- | --------------------------- | ----------- |
 | Volumen SFX           | Slider horizontal | 0% - 100%                   | 70%         |
+| Volumen Ambiente      | Slider horizontal | 0% - 100%                   | 50%         |
 | Duracion del pomodoro | Selector          | 1, 5, 15, 25, 30, 45, 60 min| 25 min      |
 | Duracion del descanso | Selector          | 1, 3, 5, 10 min             | 5 min       |
+
+**SFX**: Sonidos de acciones (clicks, disparos, impactos, recoleccion, etc.)
+**Ambiente**: Sonidos de ambientacion continua (espacio, nave, fondo atmosferico).
+No hay musica; el canal de ambiente es para loops/texturas sonoras ambientales.
 
 ### Comportamiento
 - Los cambios se aplican inmediatamente (no requiere boton "guardar").
 - Boton **"Back"** para volver al menu.
 - Los valores se persisten si se implementa el sistema de guardado (ver backlog).
-- El slider de volumen ajusta el volumen master de `pygame.mixer`.
-- Los selectores de duracion pueden ser botones `<` `>` que ciclan entre
+- Los sliders controlan volumenes independientes en el AudioManager (futuro).
+- Los selectores de duracion son botones `<` `>` que ciclan entre
   los valores predefinidos.
 
 ### Layout sugerido
 ```
-         SETTINGS
+            SETTINGS
 
-  SFX Volume     [=====>----]  70%
+  SFX Volume       [=====>----]  70%
 
-  Pomodoro       <  25 min  >
+  Ambience         [====>-----]  50%
 
-  Break          <   5 min  >
+  Pomodoro         <  25 min  >
 
-            [ Back ]
+  Break            <   5 min  >
+
+              [ Back ]
 ```
 
 ---
 
-## 10. Sistema de descanso (BreakScene)
+## 10. Sistema de descanso (Break banner)
 
-Implementa la pausa entre sesiones de la tecnica Pomodoro.
+Implementa la pausa entre sesiones de la tecnica Pomodoro como un **banner
+persistente** en la parte inferior de la pantalla, visible en Menu, Talents y Settings.
+
+### Implementacion
+
+No es una escena independiente. El estado vive en el objeto Game:
+- `break_active`: si el break esta activo
+- `break_remaining`: segundos restantes del countdown
+- `break_ready`: si el countdown termino
+- `break_ready_timer`: acumulador para la animacion pulse
+
+El banner se dibuja via `Game.draw_break_banner(surf)` en el game loop,
+**encima** de las escenas MenuScene, TalentScene y SettingsScene.
 
 ### Cuando se activa
 - **Automaticamente** al completar una mision exitosamente.
-- Flujo: Mission complete -> (delay 1.5s) -> BreakScene.
-- **No se activa** al abortar una mision (se vuelve directo al menu).
+- Flujo: Mission complete -> `_last_mission` guardado -> USEREVENT+1 (1.5s)
+  -> `Game._start_break()` -> vuelve al menu con break activo.
+- **No se activa** al abortar una mision (AbortScene va directo al menu).
+- Se **desactiva** al iniciar una nueva mision (`dismiss_break()`).
 
-### Fase 1: Cuenta regresiva
+### Banner: Fase countdown
 
-- Muestra un contador descendente con la duracion del descanso (configurable
-  en Settings, default 5 min).
-- Formato: `MM:SS`.
-- Texto acompanante: *"Take a break"* o similar, en tono suave.
-- Fondo relajante (puede ser el fondo negro con estrellas sutiles o similar).
-- El jugador **puede** volver al menu antes de que termine el descanso
-  mediante un boton discreto (no prominente, para no incentivar saltear).
+- Barra de 36px en la parte inferior, fondo oscuro (15,15,25) con linea separadora.
+- Texto central: **"Break MM:SS"** en `font_small`, color GRAY.
+- Lado izquierdo: info de la mision (tarea + fragmentos), `font_small`, DARK_GRAY.
 
-### Fase 2: Ready (post-descanso)
+### Banner: Fase ready
 
-- Al llegar el contador a 0, el texto cambia a un mensaje como:
-  **"Ready for next mission"**.
-- El mensaje aparece con un **parpadeo suave** (pulse de opacidad, no
-  on/off brusco):
-  - Opacidad oscila entre ~40% y 100% usando una funcion sinusoidal.
-  - Frecuencia: ~0.8 Hz (un ciclo completo cada ~1.2 segundos).
-  - El efecto debe ser **estimulante pero no agresivo**, como un faro lejano.
-- El jugador hace click o presiona cualquier tecla para volver al menu.
-- **No hay auto-retorno**: el jugador decide cuando esta listo.
-
-### Informacion en pantalla durante el descanso
-
-| Elemento                | Visible en fase 1 | Visible en fase 2 |
-| ----------------------- | ------------------ | ------------------ |
-| Contador MM:SS          | Si                 | No                 |
-| "Take a break"          | Si                 | No                 |
-| "Ready for next mission"| No                 | Si (pulsando)      |
-| Tarea completada        | Si (sutil)         | Si (sutil)         |
-| Fragmentos ganados      | Si (sutil)         | Si (sutil)         |
-| Boton "Skip" / "Menu"   | Si (discreto)      | No                 |
-| "Click to continue"     | No                 | Si                 |
+- Al llegar el countdown a 0, el banner muestra **"Ready for mission"**
+  en `font`, color GREEN, centrado.
+- Pulso de opacidad sinusoidal suave:
+  - Rango: 100-255 (~40%-100%).
+  - Frecuencia: 0.8 Hz.
+  - Efecto estimulante pero no agresivo.
 
 ### Notas de diseno
-- Esta pantalla debe ser la mas relajante de todo el juego.
-- Considerar un SFX suave al terminar el descanso (como un chime ambiental).
-- El descanso no es obligatorio: el boton de skip existe, pero no se destaca.
+- El banner no bloquea la interaccion con el menu: el jugador puede crear
+  tareas, modificar talentos o cambiar settings mientras el break corre.
+- Considerar un SFX suave al terminar el countdown (Fase 5).
+- Al iniciar nueva mision el break se desactiva automaticamente.
 
 ---
 
