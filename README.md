@@ -70,6 +70,45 @@ Arbol de mejoras permanentes compradas con fragmentos:
 - Mision: solo el boton "Abort Mission" es interactivo; el resto es automatico.
 - Talentos: click en los botones de upgrade.
 
+## Build Web (itch.io)
+
+Para generar una version que se ejecute en el navegador se usa [Pygbag](https://pygame-web.github.io/), que empaqueta el juego como WebAssembly.
+
+### Requisitos
+
+```bash
+pip install pygbag
+```
+
+### Generar el build
+
+```bash
+python -m pygbag --build main.py
+```
+
+Los archivos resultantes se generan en `build/web/`.
+
+### Crear el ZIP para itch.io
+
+```powershell
+# PowerShell
+Compress-Archive -Path './build/web/*' -DestinationPath './build/pomodoro-miner-web.zip' -Force
+```
+
+```bash
+# Linux / macOS
+cd build/web && zip -r ../pomodoro-miner-web.zip . && cd ../..
+```
+
+### Subir a itch.io
+
+1. Ir a **itch.io > Dashboard > Create new project**.
+2. En "Kind of project" seleccionar **HTML**.
+3. Subir el archivo `build/pomodoro-miner-web.zip`.
+4. Marcar **"This file will be played in the browser"**.
+5. Configurar el tamaño del embed a **900x600**.
+6. Guardar y publicar.
+
 ## Estructura del proyecto
 
 ```
