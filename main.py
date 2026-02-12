@@ -13,6 +13,13 @@ WIDTH, HEIGHT = 900, 600
 FPS = 60
 BG_COLOR = (0, 0, 0)
 
+# Font paths (relative to this file)
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_ASSET_DIR = os.path.join(_BASE_DIR, "assets")
+FONT_TITLE = os.path.join(_ASSET_DIR, "fonts", "ChakraPetch-Bold.ttf")
+FONT_HEADING = os.path.join(_ASSET_DIR, "fonts", "ChakraPetch-Regular.ttf")
+FONT_MONO = os.path.join(_ASSET_DIR, "fonts", "ShareTechMono-Regular.ttf")
+
 # Colors
 WHITE = (255, 255, 255)
 GRAY = (160, 160, 160)
@@ -25,7 +32,7 @@ ORANGE = (255, 160, 40)
 ASTEROID_COLOR = (130, 130, 130)
 
 # Pomodoro duration in seconds (change to e.g. 60 for testing)
-POMODORO_SECONDS = 60*5  # 1 min for testing (change to 25 * 60 for real use)
+POMODORO_SECONDS = 60  # 1 min for testing (change to 25 * 60 for real use)
 
 # Ship / mission tunables
 ORBIT_RADIUS = 150
@@ -267,6 +274,118 @@ class Fragment:
 # ---------------------------------------------------------------------------
 # Scenes
 # ---------------------------------------------------------------------------
+
+# Intro text lines (typewriter effect)
+INTRO_LINES = [
+    "Bienvenido a POMI Corp.",
+    "",
+    "Cargue sus tareas para comenzar la mision.",
+    "Aproveche los recursos para optimizar la nave.",
+]
+
+
+class IntroScene:
+    """Welcome screen shown once at game start with typewriter text."""
+
+    TITLE_FADE_DURATION = 1.0   # seconds to fade in title
+    TITLE_HOLD = 0.6            # pause after title before text starts
+    CHAR_DELAY = 0.035          # seconds per character (~28 chars/s)
+    LINE_PAUSE = 0.4            # extra pause between lines
+    END_HOLD = 1.5              # pause after all text before auto-advance
+
+    def __init__(self, game):
+        self.game = game
+        self.timer = 0.0
+        self.phase = "title_fade"  # title_fade -> title_hold -> typing -> done
+        self.char_index = 0        # global char index across all lines
+        self.type_timer = 0.0
+        self.finished_text = False
+
+        # Pre-calculate total chars and line boundaries
+        self._total_chars = sum(len(line) for line in INTRO_LINES)
+        self._line_starts = []
+        acc = 0
+        for line in INTRO_LINES:
+            self._line_starts.append(acc)
+            acc += len(line)
+
+    def _skip(self):
+        self.game.scene = FadeTransition(self.game, self, self.game.menu)
+
+    def handle_event(self, ev):
+        if ev.type == pygame.MOUSEBUTTONDOWN or (
+            ev.type == pygame.KEYDOWN and ev.key != pygame.K_ESCAPE
+        ):
+            self._skip()
+
+    def update(self, dt):
+        self.timer += dt
+
+        if self.phase == "title_fade":
+            if self.timer >= self.TITLE_FADE_DURATION:
+                self.phase = "title_hold"
+                self.timer = 0.0
+
+        elif self.phase == "title_hold":
+            if self.timer >= self.TITLE_HOLD:
+                self.phase = "typing"
+                self.timer = 0.0
+                self.type_timer = 0.0
+
+        elif self.phase == "typing":
+            self.type_timer += dt
+            # Advance characters based on elapsed time
+            while self.type_timer >= self.CHAR_DELAY and self.char_index < self._total_chars:
+                self.type_timer -= self.CHAR_DELAY
+                self.char_index += 1
+                # Add extra pause at line boundaries
+                for start in self._line_starts[1:]:
+                    if self.char_index == start:
+                        self.type_timer -= self.LINE_PAUSE
+                        break
+            if self.char_index >= self._total_chars and not self.finished_text:
+                self.finished_text = True
+                self.timer = 0.0
+                self.phase = "done"
+
+        elif self.phase == "done":
+            if self.timer >= self.END_HOLD:
+                self._skip()
+
+    def draw(self, surf):
+        # Title
+        if self.phase == "title_fade":
+            alpha = clamp(int(255 * self.timer / self.TITLE_FADE_DURATION), 0, 255)
+        else:
+            alpha = 255
+
+        title_surf = self.game.font_title.render("POMI Corp.", True, CYAN)
+        if alpha < 255:
+            title_surf.set_alpha(alpha)
+        surf.blit(title_surf, (WIDTH // 2 - title_surf.get_width() // 2,
+                                HEIGHT // 3 - title_surf.get_height() // 2))
+
+        # Typewriter text (only during typing and done phases)
+        if self.phase in ("typing", "done"):
+            remaining = self.char_index
+            y = HEIGHT // 3 + 50
+            for line in INTRO_LINES:
+                if remaining <= 0:
+                    break
+                visible = line[:remaining]
+                remaining -= len(line)
+                if visible:
+                    line_surf = self.game.font.render(visible, True, GRAY)
+                    surf.blit(line_surf, (WIDTH // 2 - line_surf.get_width() // 2, y))
+                y += 28
+
+        # Skip hint
+        if self.phase != "title_fade":
+            hint = self.game.font_small.render("Click o presione una tecla para continuar",
+                                                True, DARK_GRAY)
+            surf.blit(hint, (WIDTH // 2 - hint.get_width() // 2, HEIGHT - 40))
+
+
 class MenuScene:
     def __init__(self, game):
         self.game = game
@@ -346,11 +465,10 @@ class MenuScene:
 
     def draw(self, surf):
         font = self.game.font
-        big = self.game.font_big
 
         # Title
-        title = big.render("POMODORO MINER", True, CYAN)
-        surf.blit(title, (WIDTH // 2 - title.get_width() // 2, 20))
+        title = self.game.font_title.render("POMODORO MINER", True, CYAN)
+        surf.blit(title, (WIDTH // 2 - title.get_width() // 2, 16))
 
         # Fragment counter
         frag_s = font.render(f"Fragments: {self.game.talents.fragments}", True, YELLOW)
@@ -415,9 +533,10 @@ class MenuScene:
 
         # Scroll hint
         if len(self.game.tasks) > vis:
-            hint = font.render(f"(scroll: {self.scroll_offset + 1}-"
-                               f"{min(self.scroll_offset + vis, len(self.game.tasks))}"
-                               f" / {len(self.game.tasks)})", True, DARK_GRAY)
+            hint = self.game.font_small.render(
+                f"(scroll: {self.scroll_offset + 1}-"
+                f"{min(self.scroll_offset + vis, len(self.game.tasks))}"
+                f" / {len(self.game.tasks)})", True, DARK_GRAY)
             surf.blit(hint, (WIDTH // 2 - hint.get_width() // 2, HEIGHT - 30))
 
 
@@ -448,12 +567,11 @@ class TalentScene:
 
     def draw(self, surf):
         font = self.game.font
-        big = self.game.font_big
         talents = self.game.talents
 
         # Title
-        title = big.render("TALENTS", True, ORANGE)
-        surf.blit(title, (WIDTH // 2 - title.get_width() // 2, 15))
+        title = self.game.font_title.render("TALENTS", True, ORANGE)
+        surf.blit(title, (WIDTH // 2 - title.get_width() // 2, 12))
 
         # Fragment count
         frag_s = font.render(f"Fragments: {talents.fragments}", True, YELLOW)
@@ -615,14 +733,13 @@ class MissionScene:
     # -- draw --
     def draw(self, surf):
         font = self.game.font
-        big = self.game.font_big
 
         # Timer
         mins = int(self.remaining) // 60
         secs = int(self.remaining) % 60
         timer_str = f"{mins:02d}:{secs:02d}"
-        timer_surf = big.render(timer_str, True, WHITE)
-        surf.blit(timer_surf, (WIDTH // 2 - timer_surf.get_width() // 2, 15))
+        timer_surf = self.game.font_timer.render(timer_str, True, WHITE)
+        surf.blit(timer_surf, (WIDTH // 2 - timer_surf.get_width() // 2, 10))
 
         # Task name
         task_surf = font.render(self.task.name, True, GRAY)
@@ -662,7 +779,7 @@ class MissionScene:
             overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 120))
             surf.blit(overlay, (0, 0))
-            done = big.render("MISSION COMPLETE!", True, GREEN)
+            done = self.game.font_heading.render("MISSION COMPLETE!", True, GREEN)
             surf.blit(done, (WIDTH // 2 - done.get_width() // 2,
                              HEIGHT // 2 - 30))
             earned = font.render(f"+{self.collected} fragments earned!", True, YELLOW)
@@ -699,7 +816,6 @@ class AbortScene:
 
     def draw(self, surf):
         font = self.game.font
-        big = self.game.font_big
 
         # Overlay background
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -707,7 +823,7 @@ class AbortScene:
         surf.blit(overlay, (0, 0))
 
         # Title
-        title = big.render("MISSION ABORTED", True, RED)
+        title = self.game.font_heading.render("MISSION ABORTED", True, RED)
         surf.blit(title, (WIDTH // 2 - title.get_width() // 2, HEIGHT // 2 - 140))
 
         # Task name
@@ -733,7 +849,7 @@ class AbortScene:
         surf.blit(pen_s, (WIDTH // 2 - pen_s.get_width() // 2, HEIGHT // 2 + 25))
 
         # Earned
-        earn_s = big.render(f"+{self.earned} fragments", True, YELLOW)
+        earn_s = self.game.font_heading.render(f"+{self.earned} fragments", True, YELLOW)
         surf.blit(earn_s, (WIDTH // 2 - earn_s.get_width() // 2, HEIGHT // 2 + 65))
 
         # Continue button
@@ -805,7 +921,7 @@ class StoryScene:
         surf.fill(BG_COLOR)
         surf.blit(self.scaled, (self.img_x, self.img_y))
         # Hint text
-        hint = self.game.font.render("Click or press SPACE to start mission", True, GRAY)
+        hint = self.game.font_small.render("Click or press SPACE to start mission", True, GRAY)
         surf.blit(hint, (WIDTH // 2 - hint.get_width() // 2, HEIGHT - 30))
 
 
@@ -818,15 +934,19 @@ class Game:
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption("Pomodoro Miner")
         self.clock = pygame.time.Clock()
-        self.font = pygame.font.SysFont("consolas", 18)
-        self.font_big = pygame.font.SysFont("consolas", 36, bold=True)
+        # Typography scale
+        self.font_title = pygame.font.Font(FONT_TITLE, 38)       # Main titles
+        self.font_heading = pygame.font.Font(FONT_HEADING, 28)   # Section headings
+        self.font_timer = pygame.font.Font(FONT_MONO, 42)        # Mission timer
+        self.font = pygame.font.Font(FONT_MONO, 18)              # Body / UI text
+        self.font_small = pygame.font.Font(FONT_MONO, 14)        # Hints, captions
 
         self.tasks: list[Task] = []
         self.talents = TalentTree()
         self.total_pomodoros = 0
         self.story_images = self._load_story_images()
         self.menu = MenuScene(self)
-        self.scene = self.menu
+        self.scene = IntroScene(self)
         self.running = True
 
     def _load_story_images(self):
