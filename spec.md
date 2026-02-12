@@ -316,6 +316,7 @@ ORBITING → AIMING → SHOOTING → RETURNING → ORBITING
 - **Sin cambios bruscos**: Todas las transiciones de angulo y velocidad son interpoladas (lerp/ease).
 - **Inercia**: La nave nunca se detiene completamente; siempre conserva movimiento orbital residual.
 - **Coherencia relajante**: El ritmo de disparo y los giros suaves refuerzan la sensacion de calma automatica.
+- **Orbita invisible**: La trayectoria orbital es puramente logica. **No se dibuja** ningun circulo, linea ni guia visual de la orbita. La nave simplemente "flota" alrededor del asteroide de forma natural.
 
 ### Sistema de Rayo Tractor (Recoleccion de Fragmentos)
 
@@ -419,17 +420,72 @@ virtual continuo si la camara es estatica). Las capas mas lejanas se mueven meno
 - **Performance**: Mantener el conteo de objetos bajo. Las estrellas son puntos simples, los planetas circulos con pocos draws, los asteroides poligonos de pocos vertices.
 - **Coherencia relajante**: El parallax debe agregar inmersion sin distraer. Todo movimiento es lento, fluido y predecible.
 
-### Arquitectura de Escenas
+### Arquitectura del Game Loop y Clase Game
+
+El juego se estructura alrededor de una clase **Game** que actua como estado central y
+orquestador del game loop. El loop es **async** para compatibilidad con Pygbag (web).
+
+**Clase Game (estado central)**:
+
+| Atributo | Tipo | Descripcion |
+|----------|------|-------------|
+| `screen` | Surface | Surface principal de Pygame (900x600) |
+| `clock` | Clock | Control de framerate (60 FPS) |
+| `scene` | Scene | Escena activa (se swapea en transiciones) |
+| `tasks` | list[dict] | Lista de tareas del jugador ({name, pomodoros}) |
+| `fragments` | int | Total de fragmentos acumulados |
+| `talents` | dict | Niveles de cada talento {id: nivel} |
+| `sfx_volume` | float | Volumen SFX (0.0-1.0, default 0.7) |
+| `ambient_volume` | float | Volumen ambiente (0.0-1.0, default 0.5) |
+| `pomodoro_minutes` | int | Duracion del pomodoro (default 25) |
+| `break_minutes` | int | Duracion del descanso (default 5) |
+| `break_active` | bool | Si el break esta activo |
+| `break_remaining` | float | Segundos restantes del break |
+| `break_ready` | bool | Si el countdown del break termino |
+| `audio` | AudioManager | Instancia del gestor de audio |
+| `font`, `font_title`, `font_heading`, `font_timer`, `font_small` | Font | Fuentes cargadas |
+
+**Game loop** (pseudocodigo):
+
+```python
+async def main():
+    pygame.init()
+    game = Game()
+    game.scene = IntroScene(game)  # Solo al arrancar
+
+    while True:
+        dt = clock.tick(60) / 1000.0
+        for event in pygame.event.get():
+            game.scene.handle_event(event)
+        game.scene.update(dt)
+        game.update_break(dt)  # Si break activo
+        game.scene.draw(screen)
+        game.draw_break_banner(screen)  # Si en menu/talents/settings
+        pygame.display.flip()
+        await asyncio.sleep(0)  # Yield para Pygbag
+```
+
+**Patron de escenas (contrato)**:
+
+Cada escena es una clase que implementa 3 metodos:
+
+- `handle_event(event)`: Procesa eventos de Pygame (clicks, teclas, mouse)
+- `update(dt)`: Actualiza logica con delta time en segundos
+- `draw(surf)`: Dibuja la escena en la surface
+
+Las transiciones entre escenas se hacen via `FadeTransition(game, next_scene, duration=0.5)`.
+
+### Escenas del Juego
 
 ```
 IntroScene         - Pantalla de bienvenida con titulo y texto typewriter
 MenuScene          - Lista de tareas, input de texto, navegacion
 SettingsScene      - Ajustes: volumen, duracion de pomodoro
-TalentScene        - Arbol de mejoras permanentes
+TalentScene        - Arbol de mejoras permanentes (16 talentos en 4 ramas)
 StoryScene         - Imagen narrativa pre-mision (si hay assets)
 MissionScene       - Gameplay principal (nave orbitando + mineria)
 AbortScene         - Resumen al abortar una mision
-FadeTransition     - Transicion fade-to-black entre escenas
+FadeTransition     - Transicion fade-to-black entre escenas (0.5s)
 ```
 
 **Break banner**: Banner persistente en parte inferior de Menu/Talents/Settings.
@@ -476,6 +532,166 @@ Los elementos deben estar distribuidos sin solapamientos.
 - Si el break banner esta activo (36px inferiores), los botones deben quedar por encima del banner.
 - La lista de tareas ocupa la zona central con scroll si hay muchas tareas.
 
+### Layout del IntroScene
+
+```
++------------------------------------------+
+|                                          |
+|                                          |
+|            POMI Corp.                    |   <- font_title, CYAN, fade-in 1.0s
+|                                          |
+|   "Bienvenido a POMI Corp."             |   <- font, WHITE, typewriter ~28 chars/s
+|   "Cargue sus tareas para comenzar..."   |   <- pausa 0.4s entre lineas
+|   "Aproveche los recursos para..."       |
+|                                          |
+|                                          |
+|        [click/tecla para skip]           |   <- font_small, GRAY, sutil
++------------------------------------------+
+```
+
+- Fade-in del titulo: 1.0s. Pausa post-titulo: 0.6s.
+- Typewriter: ~28 chars/s (CHAR_DELAY = 0.035s). Pausa entre lineas: 0.4s.
+- Auto-avance al menu con fade tras 1.5s de pausa final.
+- Skip en cualquier momento (click o tecla) salta directo al menu con fade.
+- Solo se muestra al abrir el juego, no entre misiones.
+
+### Layout del SettingsScene
+
+```
++------------------------------------------+
+|                                          |
+|              SETTINGS                    |   <- font_heading, WHITE, centrado
+|                                          |
+|   SFX Volume    [=====>----]  70%        |   <- slider arrastrable
+|                                          |
+|   Ambience      [====>-----]  50%        |   <- slider arrastrable, actualiza en vivo
+|                                          |
+|   Pomodoro      <  25 min  >             |   <- selector con < > ciclando valores
+|                                          |
+|   Break         <   5 min  >             |   <- selector con < > ciclando valores
+|                                          |
+|              [ Back ]                    |   <- vuelve al menu
+|                                          |
+|  ======= Break banner (36px) =========  |
++------------------------------------------+
+```
+
+- Cambios se aplican inmediatamente (sin boton guardar).
+- Valores de pomodoro: 1, 5, 15, 25, 30, 45, 60 min.
+- Valores de break: 1, 3, 5, 10 min.
+
+### Layout del TalentScene
+
+```
++------------------------------------------+
+|                                          |
+|    TALENTS           Fragments: 42       |   <- font_heading + contador
+|                                          |
+|  --- Weapons ---                         |   <- separador de rama
+|  Rapid Fire      Lv 2/5  [Upgrade: 10]  |
+|  Multi Shot      Lv 0/5  [Upgrade: 5]   |
+|  Trigger Finger  Lv 0/3  [Upgrade: 5]   |
+|  Deep Drill      Lv 0/3  [Upgrade: 5]   |
+|  Overcharge      Lv 0/4  [Upgrade: 5]   |
+|  --- Tractor Beam ---                    |
+|  Long Range Beam Lv 1/5  [Upgrade: 10]  |
+|  ...                                     |   <- scroll si no caben
+|  --- Ship ---                            |
+|  ...                                     |
+|  --- Resources ---                       |
+|  ...                                     |
+|                                          |
+|              [ Back ]                    |
+|  ======= Break banner (36px) =========  |
++------------------------------------------+
+```
+
+- 16 talentos en 4 ramas con separadores visuales.
+- Cada talento muestra: nombre, nivel actual/max, boton Upgrade con costo.
+- Si nivel == max: muestra "MAX" en vez de boton.
+- Si fragmentos insuficientes: boton visualmente deshabilitado.
+- Scroll vertical si los 16 talentos no caben en pantalla.
+
+### Layout del MissionScene HUD
+
+```
++------------------------------------------+
+|  Tarea: "Estudiar fisica"     MM:SS      |   <- font_small + font_timer, zona superior
+|                                          |
+|          [Parallax Capa 1]               |
+|      [Parallax Capa 2]                   |
+|                                          |
+|            ~~~  asteroide  ~~~           |   <- centro de pantalla
+|         nave -->  *   <-- fragmentos     |
+|              [rayos tractor]             |
+|                                          |
+|          [Parallax Capa 3]               |
+|                                          |
+|  Fragments: 12          [ Abort ]        |   <- font_small, zona inferior
++------------------------------------------+
+```
+
+- Nombre de tarea y timer en la zona superior.
+- Contador de fragmentos y boton Abort en la zona inferior.
+- La accion (nave, asteroide, fragmentos, rayos) ocupa el centro.
+- El parallax se renderiza en su orden de capas.
+- No se dibuja la orbita (trayectoria invisible).
+
+### Layout del AbortScene
+
+```
++------------------------------------------+
+|                                          |
+|          MISSION ABORTED                 |   <- font_heading, RED
+|                                          |
+|   Task: "Estudiar fisica"               |
+|   Time elapsed: 12:34                    |
+|   Time remaining: 12:26                  |
+|                                          |
+|   Fragments mined: 24                    |
+|   Fragments kept (30%): 7               |   <- penalidad visible
+|                                          |
+|            [ Continue ]                  |   <- vuelve al menu
+|                                          |
++------------------------------------------+
+```
+
+- Resumen de la mision abortada con penalidad visible.
+- Boton "Continue" para volver al menu.
+- No se activa break al abortar.
+
+### Layout del StoryScene
+
+```
++------------------------------------------+
+|                                          |
+|                                          |
+|         [story_XX.png centrada]          |   <- imagen escalada a pantalla
+|                                          |
+|                                          |
+|                                          |
+|    [click o SPACE para continuar]        |   <- font_small, GRAY, sutil
++------------------------------------------+
+```
+
+**Seleccion de imagen**:
+
+Las imagenes se almacenan en `assets/images/` con el patron `story_XX.png` (ej: `story_01.png`, `story_02.png`).
+La imagen mostrada depende del **total de pomodoros completados** por el jugador:
+
+| Pomodoros completados | Imagen mostrada |
+|----------------------|-----------------|
+| 0-2                  | story_01.png    |
+| 3-5                  | story_02.png    |
+| 6+                   | story_03.png (o la mas alta disponible) |
+
+**Comportamiento**:
+
+- Si no hay imagenes en `assets/images/`, la StoryScene se salta y se va directo a MissionScene.
+- Si la imagen correspondiente no existe, se muestra la ultima disponible.
+- Click o SPACE para continuar a MissionScene con fade.
+- La imagen se escala/centra manteniendo aspect ratio dentro de la resolucion (900x600).
+
 ### Paleta de Colores
 
 | Nombre        | RGB             | Uso                          |
@@ -518,6 +734,67 @@ Filosofia: ambiental y no intrusivo. Sin musica. Dos canales: SFX y Ambiente.
 | `mission_abort.wav`  | SFX      | Tono descendente suave               | Pendiente   |
 | `talent_upgrade.wav` | SFX      | Sonido de mejora/nivel up            | Pendiente   |
 | `break_ready.wav`    | SFX      | Chime ambiental suave                | Pendiente   |
+
+### Generacion Procedural de Audio (generate_audio.py)
+
+Los archivos de audio se generan con un script Python puro (`generate_audio.py`) sin
+dependencias externas. Esto permite reproducir los assets de audio desde cero en cualquier
+entorno. Los archivos generados son **placeholders** reemplazables por audio profesional.
+
+**Formato de salida**: WAV mono 16-bit, 44100 Hz.
+
+**Tecnicas de generacion**:
+
+| Tipo de sonido | Tecnica | Parametros clave |
+|---------------|---------|-----------------|
+| Click UI | Sine burst con decay exponencial | 800 Hz, 0.08s, decay exp(-t*60), vol 0.4 |
+| Ambient drone | Capas de senos con modulacion lenta + ruido filtrado | Acorde A1-E2-A2-E3 (55-165 Hz), mod 0.05 Hz, ruido 0.015, fade in/out 0.5s, loop 10s |
+| Laser (disparo) | Sine sweep descendente con decay | Freq alta->baja, ~0.1s |
+| Impacto | Noise burst con envelope percusivo | ~0.08s, decay rapido |
+| Tintineo (recoleccion) | Sine de alta frecuencia con decay | ~1200 Hz, 0.12s |
+| Acorde (mision completa) | Capas de senos en acorde mayor | ~0.5s, fade out |
+| Tono descendente (abort) | Sine sweep descendente lento | ~0.3s |
+| Upgrade | Sine sweep ascendente | Freq baja->alta, ~0.2s |
+| Chime (break ready) | Sine puro con decay suave | ~800 Hz, 0.3s |
+
+**Ejecucion**: `python generate_audio.py` genera todos los archivos en `assets/audio/`.
+Se ejecuta una vez durante el setup del proyecto. No es necesario en runtime.
+
+### Restricciones de Plataforma (Pygbag / Web)
+
+El juego debe funcionar como **build web via Pygbag** ademas de desktop nativo.
+Estas restricciones deben considerarse durante toda la implementacion.
+
+**Game loop async** (obligatorio):
+
+```python
+import asyncio
+
+async def main():
+    # ... game loop ...
+    while running:
+        # ... update, draw ...
+        await asyncio.sleep(0)  # Cede control al browser
+
+asyncio.run(main())
+```
+
+**Restricciones tecnicas**:
+
+| Area | Restriccion | Solucion |
+|------|------------|---------|
+| Game loop | Debe ser `async` con `await asyncio.sleep(0)` en cada frame | Usar patron async desde el inicio |
+| Fonts | SDL_ttf no soporta CFF outlines | Usar solo TrueType puras (.ttf con outlines TT) |
+| Audio | Formatos soportados: WAV, OGG | No usar MP3. Generar en WAV. |
+| Audio | Autoplay bloqueado por browsers | El audio comienza tras primera interaccion del usuario |
+| File I/O | No hay filesystem persistente en web | Persistencia via localStorage (backlog) |
+| Imports | Solo stdlib + pygame disponibles | No usar dependencias externas en runtime |
+| Assets | Deben estar en el directorio del proyecto | Pygbag empaqueta todo el directorio en el build |
+| Threads | No disponibles en WASM | No usar threading; todo en el loop async |
+
+**Comando de build**: `python -m pygbag --build main.py`
+**Test local**: `python -m pygbag main.py` (sirve en localhost)
+**Output**: Directorio `build/web/` con archivos HTML/JS/WASM listos para itch.io.
 
 ## Success Criteria *(mandatory)*
 

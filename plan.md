@@ -277,12 +277,16 @@ visible al fragmento mas cercano -> el fragmento es atraido -> se recolecta -> e
 
 ### Implementation
 
-- [ ] T080 [US5] Generar ship_shoot.wav, asteroid_hit.wav, fragment_collect.wav con generate_audio.py
-- [ ] T081 [US5] Generar mission_complete.wav, mission_abort.wav, talent_upgrade.wav, break_ready.wav
-- [ ] T082 [US5] Integrar SFX en MissionScene (disparo, impacto, recoleccion, mision completa)
-- [ ] T083 [US5] Integrar SFX en AbortScene (mision abortada)
-- [ ] T084 [US5] Integrar SFX en TalentScene (upgrade)
-- [ ] T085 [US5] Integrar SFX break_ready al terminar countdown
+- [ ] T080 [US5] Implementar gen_ship_shoot() en generate_audio.py: sine sweep descendente, ~0.1s
+- [ ] T081 [US5] Implementar gen_asteroid_hit() en generate_audio.py: noise burst percusivo, ~0.08s
+- [ ] T082 [US5] Implementar gen_fragment_collect() en generate_audio.py: sine alta freq con decay, ~0.12s
+- [ ] T083 [US5] Implementar gen_mission_complete() en generate_audio.py: acorde mayor, ~0.5s
+- [ ] T084 [US5] Implementar gen_mission_abort(), gen_talent_upgrade(), gen_break_ready() en generate_audio.py
+- [ ] T085 [US5] Ejecutar generate_audio.py y verificar que todos los .wav se crean en assets/audio/
+- [ ] T086 [US5] Integrar SFX en MissionScene (disparo, impacto, recoleccion, mision completa)
+- [ ] T087 [US5] Integrar SFX en AbortScene (mision abortada)
+- [ ] T088 [US5] Integrar SFX en TalentScene (upgrade)
+- [ ] T089 [US5] Integrar SFX break_ready al terminar countdown
 
 **Checkpoint**: Audio completo. Cada accion tiene feedback sonoro sutil.
 
@@ -292,13 +296,17 @@ visible al fragmento mas cercano -> el fragmento es atraido -> se recolecta -> e
 
 **Purpose**: Generar build web y publicar en itch.io.
 
-- [ ] T086 Verificar que todos los assets (fonts, audio, images) se empaquetan correctamente
-- [ ] T087 Generar build con `python -m pygbag --build main.py`
-- [ ] T088 Testear build web localmente (`python -m pygbag main.py`)
-- [ ] T089 Verificar compatibilidad de fonts TrueType con Pygbag
-- [ ] T090 Verificar compatibilidad de audio con Pygbag
-- [ ] T091 Crear ZIP y subir a itch.io
-- [ ] T092 Configurar pagina de itch.io (titulo, descripcion, screenshots, tags)
+- [ ] T090 Verificar que el game loop es async con await asyncio.sleep(0) en cada frame
+- [ ] T091 Verificar que no se usan threads ni file I/O bloqueante
+- [ ] T092 Verificar que todos los assets (fonts, audio, images) se empaquetan correctamente
+- [ ] T093 Verificar que solo se usan imports de stdlib + pygame (sin dependencias externas en runtime)
+- [ ] T094 Generar build con `python -m pygbag --build main.py`
+- [ ] T095 Testear build web localmente (`python -m pygbag main.py`)
+- [ ] T096 Verificar compatibilidad de fonts TrueType con Pygbag
+- [ ] T097 Verificar compatibilidad de audio WAV/OGG con Pygbag (no MP3)
+- [ ] T098 Verificar que el audio inicia tras primera interaccion del usuario (autoplay bloqueado)
+- [ ] T099 Crear ZIP y subir a itch.io
+- [ ] T100 Configurar pagina de itch.io (titulo, descripcion, screenshots, tags)
 
 **Checkpoint**: Juego publicado y accesible en web.
 
@@ -342,5 +350,8 @@ visible al fragmento mas cercano -> el fragmento es atraido -> se recolecta -> e
 - La IntroScene solo se muestra al arrancar, no entre misiones
 - El break se activa solo al completar mision, no al abortar
 - AudioManager carga todo assets/audio/ automaticamente
-- Fonts CFF (Orbitron, Exo2) no son compatibles con SDL_ttf. Usar solo TrueType puras.
-- Ambient loop corre en menu/intro, se detiene en misiones.
+- Fonts CFF (Orbitron, Exo2) no son compatibles con SDL_ttf. Usar solo TrueType puras (.ttf con outlines TT)
+- Ambient loop corre en menu/intro, se detiene en misiones
+- generate_audio.py es un script de setup (no runtime): genera placeholders WAV mono 16-bit 44100Hz con puro Python (math, wave, struct). Se ejecuta una vez durante el setup
+- StoryScene se salta automaticamente si no hay imagenes en assets/images/
+- **Pygbag**: Game loop DEBE ser async. No usar threads, file I/O bloqueante, MP3, ni imports externos. Audio inicia tras primera interaccion del usuario en web
