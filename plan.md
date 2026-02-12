@@ -1,4 +1,4 @@
-# Implementation Plan: Pomodoro Miner
+# Implementation Plan: POMI Corp. (Pomodoro Miner)
 
 **Date**: 2026-02-12
 **Spec**: [spec.md](spec.md)

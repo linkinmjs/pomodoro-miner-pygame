@@ -1,4 +1,4 @@
-# Feature Specification: Pomodoro Miner
+# Feature Specification: POMI Corp. (Pomodoro Miner)
 
 **Created**: 2025-01-01
 **Updated**: 2026-02-12
@@ -444,6 +444,37 @@ Menu -> [Story] -> Mission -> Abort -> Menu           (abortada)
 Menu -> Talents -> Menu
 Menu -> Settings -> Menu
 ```
+
+### Layout del MenuScene
+
+El menu principal muestra el titulo del juego, la lista de tareas y los botones de navegacion.
+Los elementos deben estar distribuidos sin solapamientos.
+
+```
++------------------------------------------+
+|                                          |
+|             POMI Corp.                   |   <- font_title, CYAN, centrado horizontal, Y ~40
+|                                          |
+|  [ input de texto .............. ] [Add] |   <- zona de input, Y ~100
+|                                          |
+|  > Tarea 1  (2 pom)           [Del]      |   <- lista scrollable, Y ~140 a ~420
+|    Tarea 2  (0 pom)           [Del]      |
+|    ...                                   |
+|                                          |
+|           [ Start Mission ]              |   <- boton principal, Y ~440
+|                                          |
+|     [ Talents ]     [ Settings ]         |   <- botones secundarios, Y ~500
+|                                          |
+|  ======= Break banner (36px) =========  |   <- solo si break activo
++------------------------------------------+
+```
+
+**Reglas de layout**:
+
+- El titulo **"POMI Corp."** se renderiza con `font_title` en CYAN, centrado horizontalmente, en la zona superior (~Y 40).
+- Los botones **Talents** y **Settings** se ubican en la zona inferior, por debajo de "Start Mission", con suficiente margen respecto al titulo y a la lista de tareas.
+- Si el break banner esta activo (36px inferiores), los botones deben quedar por encima del banner.
+- La lista de tareas ocupa la zona central con scroll si hay muchas tareas.
 
 ### Paleta de Colores
 
