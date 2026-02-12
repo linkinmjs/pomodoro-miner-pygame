@@ -114,12 +114,12 @@ y los fragmentos se acumulan al completar.
 
 ### Implementation for User Story 2
 
-- [x] T023 [US2] Implementar TalentScene: lista de 6 talentos con niveles y boton Upgrade
+- [x] T023 [US2] Implementar TalentScene: lista de talentos con niveles y boton Upgrade (implementacion inicial con 6 talentos)
 - [x] T024 [US2] Implementar sistema de costo progresivo (nivel * 5 fragmentos)
-- [x] T025 [US2] Aplicar efectos de talentos en Ship/MissionScene (fire_rate, bullet_count, etc.) - pendiente refactor talentos de rayo tractor
+- [x] T025 [US2] Aplicar efectos de talentos basicos en Ship/MissionScene (fire_rate, bullet_count, orbit_speed, double_frag)
 - [x] T026 [US2] Feedback visual: nivel actual, costo, MAX cuando corresponda
 
-**Checkpoint**: Progression loop completo. Fragmentos tienen proposito.
+**Checkpoint**: Progression loop basico funcional. Pendiente: expansion a 16 talentos en 4 ramas (Phase 7).
 
 ---
 
@@ -181,14 +181,40 @@ visible al fragmento mas cercano -> el fragmento es atraido -> se recolecta -> e
 - [ ] T046 Implementar talento beam_range (Long Range Beam): +20%/nivel al rango del rayo
 - [ ] T047 Implementar talento beam_speed (Beam Accelerator): +15%/nivel a velocidad de atraccion
 - [ ] T048 Implementar talento beam_count (Multi Beam): +1 rayo simultaneo/nivel (max 3), cada rayo busca fragmento distinto
-- [ ] T049 Reemplazar talentos legacy (magnet_range, frag_magnet_str) por los nuevos en TalentScene
-- [ ] T050 Visual del rayo: pulso sutil de opacidad/grosor, coherente con estetica relajante
+- [ ] T049 Implementar talento auto_collect (Drone Sweep): recolecta fragmento mas lejano fuera del rango cada 10s/8s/5s
+- [ ] T050 Remover talentos legacy (magnet_range, frag_magnet_str) y reemplazar por los nuevos en TalentScene
+- [ ] T051 Implementar talentos de armamento nuevos: burst_speed, piercing, crit_shot (aplicar en MissionScene)
+- [ ] T052 Implementar talentos de navegacion nuevos: aim_speed, inertia_control (aplicar en Ship states)
+- [ ] T053 Implementar talentos de economia: abort_save (AbortScene), end_bonus (mision completa), talent_discount (costo global)
+- [ ] T054 Refactorizar TalentScene: layout en 4 ramas (Armamento, Recoleccion, Navegacion, Economia), 16 talentos total
+- [ ] T055 Visual del rayo: pulso sutil de opacidad/grosor, coherente con estetica relajante
+- [ ] T056 Visual de crit_shot: flash especial al impactar (color/tamaño distinto)
 
-**Checkpoint**: Sistema de recoleccion por rayo tractor funcional. Cada rayo atrapa 1 fragmento, visible y upgradeable.
+**Checkpoint**: Sistema de recoleccion por rayo tractor funcional + 16 talentos en 4 ramas implementados.
 
 ---
 
-## Phase 8: User Story 5 - Game Juice: Movimiento Organico (Priority: P5)
+## Phase 8: User Story 5 - Parallax de Fondo (Priority: P5)
+
+**Goal**: Fondo de MissionScene con 3 capas de parallax procedural que den profundidad y sensacion de campo de asteroides.
+
+**Independent Test**: Iniciar mision -> verificar capa de fondo (estrellas, planetas, via lactea) -> verificar asteroides decorativos detras de la nave -> esperar asteroide frontal semi-transparente pasando por encima.
+
+### Implementation
+
+- [ ] T057 [US5] Capa 1 - Estrellas: generar 80-120 puntos aleatorios (1-3 px) con brillo variable y parpadeo sinusoidal sutil
+- [ ] T058 [US5] Capa 1 - Planetas: generar 2-3 circulos (20-50 px radio) con colores desaturados (azul oscuro, violeta, terracota) y sombreado simple
+- [ ] T059 [US5] Capa 1 - Via Lactea: banda diagonal difusa con alpha muy bajo (~15-25), tonos violeta/azul, generada con ruido o circulos superpuestos
+- [ ] T060 [US5] Capa 2 - Asteroides decorativos: 5-8 poligonos irregulares (6-10 vertices, radio 8-25 px), grises oscuros, rotacion lenta aleatoria
+- [ ] T061 [US5] Capa 3 - Spawner de asteroide frontal: 1 cada 15-30s, poligono grande (60-120 px radio), alpha 40-60%, cruza pantalla linealmente
+- [ ] T062 [US5] Sistema de parallax: desplazamiento por capa (factor 0.05-0.1 / 0.2-0.3 / 1.5-2.0) vinculado al movimiento orbital o scroll continuo
+- [ ] T063 [US5] Integrar orden de renderizado en MissionScene: Capa1 -> Capa2 -> Nave/Asteroide/Fragmentos -> Capa3 -> UI
+
+**Checkpoint**: MissionScene con fondo espacial inmersivo y profundidad visual.
+
+---
+
+## Phase 9: User Story 5 - Game Juice: Movimiento Organico (Priority: P5)
 
 **Goal**: Nave con movimiento organico, screenshake, facing suave. El juego se siente vivo.
 
@@ -196,19 +222,19 @@ visible al fragmento mas cercano -> el fragmento es atraido -> se recolecta -> e
 
 ### Implementation for User Story 5
 
-- [ ] T051 [US5] Refactorizar estados de la nave: ORBITING -> AIMING -> SHOOTING -> RETURNING -> ORBITING
-- [ ] T052 [US5] AIMING: giro suave (lerp) hacia asteroide + desaceleracion gradual de velocidad orbital
-- [ ] T053 [US5] SHOOTING: cadencia pausada entre balas, velocidad orbital reducida (~30-40%) por inercia
-- [ ] T054 [US5] RETURNING: giro suave (lerp) de vuelta a tangente + aceleracion gradual hasta velocidad base
-- [ ] T055 [US5] Wobble orbital: micro-oscilacion perpendicular con suma de senos (3 frecuencias, 3-5 px)
-- [ ] T056 [US5] Screenshake al impacto: offset camara 2-4 px, decaimiento exponencial ~0.15s
-- [ ] T057 [US5] Trail de la nave (opcional): buffer circular de posiciones con alpha decreciente
+- [ ] T064 [US5] Refactorizar estados de la nave: ORBITING -> AIMING -> SHOOTING -> RETURNING -> ORBITING
+- [ ] T065 [US5] AIMING: giro suave (lerp) hacia asteroide + desaceleracion gradual de velocidad orbital
+- [ ] T066 [US5] SHOOTING: cadencia pausada entre balas, velocidad orbital reducida (~30-40%) por inercia
+- [ ] T067 [US5] RETURNING: giro suave (lerp) de vuelta a tangente + aceleracion gradual hasta velocidad base
+- [ ] T068 [US5] Wobble orbital: micro-oscilacion perpendicular con suma de senos (3 frecuencias, 3-5 px)
+- [ ] T069 [US5] Screenshake al impacto: offset camara 2-4 px, decaimiento exponencial ~0.15s
+- [ ] T070 [US5] Trail de la nave (opcional): buffer circular de posiciones con alpha decreciente
 
 **Checkpoint**: La nave se siente viva y organica.
 
 ---
 
-## Phase 9: User Story 5 - Game Juice: UI Polish (Priority: P5)
+## Phase 10: User Story 5 - Game Juice: UI Polish (Priority: P5)
 
 **Goal**: Mejorar feedback visual de menus y HUD de mision.
 
@@ -216,17 +242,17 @@ visible al fragmento mas cercano -> el fragmento es atraido -> se recolecta -> e
 
 ### Implementation
 
-- [ ] T058 [US5] Hover en botones: cambio de color/brillo al pasar el mouse
-- [ ] T059 [US5] Barra de progreso visual para el temporizador (complementa MM:SS)
-- [ ] T060 [US5] Animacion sutil en contador de fragmentos al recolectar (+1 que sube y desaparece)
-- [ ] T061 [US5] Revisar espaciado, margenes y alineacion general de la UI
-- [ ] T062 [US5] Mejorar feedback visual de AbortScene (menos agresiva)
+- [ ] T071 [US5] Hover en botones: cambio de color/brillo al pasar el mouse
+- [ ] T072 [US5] Barra de progreso visual para el temporizador (complementa MM:SS)
+- [ ] T073 [US5] Animacion sutil en contador de fragmentos al recolectar (+1 que sube y desaparece)
+- [ ] T074 [US5] Revisar espaciado, margenes y alineacion general de la UI
+- [ ] T075 [US5] Mejorar feedback visual de AbortScene (menos agresiva)
 
 **Checkpoint**: UI pulida con feedback visual consistente.
 
 ---
 
-## Phase 10: User Story 5 - Game Juice: Particulas y Efectos (Priority: P5)
+## Phase 11: User Story 5 - Game Juice: Particulas y Efectos (Priority: P5)
 
 **Goal**: Efectos de particulas para reforzar acciones del juego.
 
@@ -234,16 +260,16 @@ visible al fragmento mas cercano -> el fragmento es atraido -> se recolecta -> e
 
 ### Implementation
 
-- [ ] T063 [US5] Flash de impacto al golpear asteroide (explosion breve de particulas)
-- [ ] T064 [US5] Glow/pulse en fragmentos dentro del rango del rayo tractor
-- [ ] T065 [US5] Efecto visual al recolectar fragmento (destello que se desvanece)
-- [ ] T066 [US5] Efecto visual al completar mision (particulas de celebracion sutiles)
+- [ ] T076 [US5] Flash de impacto al golpear asteroide (explosion breve de particulas)
+- [ ] T077 [US5] Glow/pulse en fragmentos dentro del rango del rayo tractor
+- [ ] T078 [US5] Efecto visual al recolectar fragmento (destello que se desvanece)
+- [ ] T079 [US5] Efecto visual al completar mision (particulas de celebracion sutiles)
 
 **Checkpoint**: Efectos visuales completos. El juego se siente pulido.
 
 ---
 
-## Phase 11: User Story 5 - Game Juice: SFX Adicionales (Priority: P5)
+## Phase 12: User Story 5 - Game Juice: SFX Adicionales (Priority: P5)
 
 **Goal**: Agregar los SFX pendientes del catalogo de audio.
 
@@ -251,28 +277,28 @@ visible al fragmento mas cercano -> el fragmento es atraido -> se recolecta -> e
 
 ### Implementation
 
-- [ ] T067 [US5] Generar ship_shoot.wav, asteroid_hit.wav, fragment_collect.wav con generate_audio.py
-- [ ] T068 [US5] Generar mission_complete.wav, mission_abort.wav, talent_upgrade.wav, break_ready.wav
-- [ ] T069 [US5] Integrar SFX en MissionScene (disparo, impacto, recoleccion, mision completa)
-- [ ] T070 [US5] Integrar SFX en AbortScene (mision abortada)
-- [ ] T071 [US5] Integrar SFX en TalentScene (upgrade)
-- [ ] T072 [US5] Integrar SFX break_ready al terminar countdown
+- [ ] T080 [US5] Generar ship_shoot.wav, asteroid_hit.wav, fragment_collect.wav con generate_audio.py
+- [ ] T081 [US5] Generar mission_complete.wav, mission_abort.wav, talent_upgrade.wav, break_ready.wav
+- [ ] T082 [US5] Integrar SFX en MissionScene (disparo, impacto, recoleccion, mision completa)
+- [ ] T083 [US5] Integrar SFX en AbortScene (mision abortada)
+- [ ] T084 [US5] Integrar SFX en TalentScene (upgrade)
+- [ ] T085 [US5] Integrar SFX break_ready al terminar countdown
 
 **Checkpoint**: Audio completo. Cada accion tiene feedback sonoro sutil.
 
 ---
 
-## Phase 12: Build & Deploy
+## Phase 13: Build & Deploy
 
 **Purpose**: Generar build web y publicar en itch.io.
 
-- [ ] T073 Verificar que todos los assets (fonts, audio, images) se empaquetan correctamente
-- [ ] T074 Generar build con `python -m pygbag --build main.py`
-- [ ] T075 Testear build web localmente (`python -m pygbag main.py`)
-- [ ] T076 Verificar compatibilidad de fonts TrueType con Pygbag
-- [ ] T077 Verificar compatibilidad de audio con Pygbag
-- [ ] T078 Crear ZIP y subir a itch.io
-- [ ] T079 Configurar pagina de itch.io (titulo, descripcion, screenshots, tags)
+- [ ] T086 Verificar que todos los assets (fonts, audio, images) se empaquetan correctamente
+- [ ] T087 Generar build con `python -m pygbag --build main.py`
+- [ ] T088 Testear build web localmente (`python -m pygbag main.py`)
+- [ ] T089 Verificar compatibilidad de fonts TrueType con Pygbag
+- [ ] T090 Verificar compatibilidad de audio con Pygbag
+- [ ] T091 Crear ZIP y subir a itch.io
+- [ ] T092 Configurar pagina de itch.io (titulo, descripcion, screenshots, tags)
 
 **Checkpoint**: Juego publicado y accesible en web.
 
@@ -288,9 +314,10 @@ visible al fragmento mas cercano -> el fragmento es atraido -> se recolecta -> e
 - **US2 Talentos (Phase 4)**: Depende de Phase 3 (necesita fragmentos) - COMPLETADO
 - **US3 Settings (Phase 5)**: Depende de Phase 2 - COMPLETADO
 - **US4 Break (Phase 6)**: Depende de Phase 3 (se activa post-mision) - COMPLETADO
-- **Rayo Tractor (Phase 7)**: Depende de Phase 3 y 4 (refactoriza recoleccion y talentos existentes)
-- **US5 Game Juice (Phases 8-11)**: Depende de Phase 7 (polish sobre funcionalidad refactorizada)
-- **Build & Deploy (Phase 12)**: Depende de que el juego este en estado publicable
+- **Rayo Tractor + Talentos (Phase 7)**: Depende de Phase 3 y 4 (refactoriza recoleccion y talentos existentes)
+- **US5 Parallax (Phase 8)**: Depende de Phase 3 (MissionScene existente). Puede hacerse en paralelo con Phase 7.
+- **US5 Game Juice (Phases 9-12)**: Depende de Phase 7 (polish sobre funcionalidad refactorizada)
+- **Build & Deploy (Phase 13)**: Depende de que el juego este en estado publicable
 
 ### User Story Dependencies
 

@@ -185,6 +185,11 @@ screenshake al impacto -> verificar particulas -> verificar hover en botones del
    - **When** pasa el mouse sobre un boton
    - **Then** el boton cambia de color/brillo como feedback visual
 
+4. **Scenario**: Parallax de fondo en mision
+   - **Given** la mision esta activa y la nave orbita
+   - **When** el jugador observa el fondo
+   - **Then** se ven 3 capas de parallax con profundidad: planetas/estrellas/via lactea lejanos (capa trasera), asteroides cercanos (capa media), y ocasionalmente un asteroide grande que pasa por encima de todo (capa frontal)
+
 ---
 
 ### Edge Cases
@@ -207,13 +212,14 @@ screenshake al impacto -> verificar particulas -> verificar hover en botones del
 - **FR-005**: System MUST generar fragmentos al impactar el asteroide con velocidades variables de dispersion; los fragmentos flotan libremente y pueden perderse si escapan fuera del rango del rayo tractor
 - **FR-005b**: System MUST recolectar fragmentos mediante rayo tractor visible: la nave emite un rayo hacia el fragmento mas cercano dentro del rango, lo atrae a velocidad fija y lo recolecta al contacto. Base: 1 rayo simultaneo, mejorable por talentos (rango, velocidad de atraccion, rayos adicionales)
 - **FR-006**: System MUST conservar 100% de fragmentos al completar y 30% al abortar
-- **FR-007**: System MUST implementar 7 talentos con niveles, costo progresivo (N * 5) y efectos acumulativos
+- **FR-007**: System MUST implementar 16 talentos en 4 ramas (Armamento, Recoleccion, Navegacion, Economia) con niveles, costo progresivo (N * 5, modificable por talent_discount) y efectos acumulativos
 - **FR-008**: System MUST proveer Settings con sliders de volumen (SFX/Ambiente) y selectores de duracion
 - **FR-009**: System MUST activar break banner tras mision completada con countdown y fase "ready"
 - **FR-010**: System MUST reproducir audio SFX y ambiente via AudioManager con control de volumen independiente
 - **FR-011**: System MUST mostrar pantalla de introduccion con efecto typewriter solo al abrir el juego
 - **FR-012**: System MUST soportar transiciones fade-to-black entre escenas (0.5s)
 - **FR-013**: System MUST mostrar imagenes narrativas (story) antes de misiones segun pomodoros completados
+- **FR-014**: System MUST renderizar fondo parallax de 3 capas procedurales en MissionScene: fondo lejano (estrellas, planetas, via lactea), asteroides decorativos cercanos, y asteroide frontal ocasional semi-transparente
 
 ### Key Entities
 
@@ -227,15 +233,41 @@ screenshake al impacto -> verificar particulas -> verificar hover en botones del
 
 ### Tabla de Talentos
 
+**Rama Armamento (Weapons)**:
+
 | ID              | Nombre          | Max | Efecto por nivel           |
 | --------------- | --------------- | --- | -------------------------- |
-| fire_rate       | Rapid Fire      | 5   | -10% intervalo de disparo  |
+| fire_rate       | Rapid Fire      | 5   | -10% intervalo entre rafagas |
 | bullet_count    | Multi Shot      | 5   | +1 bala por rafaga         |
+| burst_speed     | Trigger Finger  | 3   | -15% intervalo entre balas dentro de una rafaga |
+| piercing        | Deep Drill      | 3   | +1 fragmento extra por impacto (chance 20%/nivel) |
+| crit_shot       | Overcharge      | 4   | 5% chance/nivel de disparo critico (x2 fragmentos en ese impacto) |
+
+**Rama Recoleccion (Tractor Beam)**:
+
+| ID              | Nombre          | Max | Efecto por nivel           |
+| --------------- | --------------- | --- | -------------------------- |
 | beam_range      | Long Range Beam | 5   | +20% rango del rayo tractor |
 | beam_speed      | Beam Accelerator| 5   | +15% velocidad de atraccion del rayo |
 | beam_count      | Multi Beam      | 2   | +1 rayo tractor simultaneo (base 1, max 3) |
 | double_frag     | Double Fragment | 5   | +8% chance fragmento doble |
+| auto_collect    | Drone Sweep     | 3   | Cada 10s/8s/5s recolecta el fragmento mas lejano fuera del rango del rayo |
+
+**Rama Navegacion (Ship)**:
+
+| ID              | Nombre          | Max | Efecto por nivel           |
+| --------------- | --------------- | --- | -------------------------- |
 | orbit_speed     | Thruster Boost  | 5   | +10% velocidad orbital     |
+| aim_speed       | Quick Draw      | 3   | +20% velocidad de giro en AIMING/RETURNING |
+| inertia_control | Drift Stabilizer| 3   | +15% velocidad minima durante SHOOTING |
+
+**Rama Economia (Resources)**:
+
+| ID              | Nombre          | Max | Efecto por nivel           |
+| --------------- | --------------- | --- | -------------------------- |
+| abort_save      | Emergency Vault | 3   | +10% fragmentos conservados al abortar (base 30%) |
+| end_bonus       | Completion Bonus| 3   | +5% fragmentos bonus al completar mision |
+| talent_discount | Efficient Corp  | 2   | -1/-2 al costo de todos los talentos (minimo costo 1) |
 
 ### Parametros del Sistema
 
@@ -320,6 +352,72 @@ Un fragmento LOCKED no puede ser objetivo de otro rayo (cada rayo atrae un fragm
 | Long Range Beam | Aumenta el radio de busqueda del rayo (+20%/nivel) |
 | Beam Accelerator | Aumenta la velocidad a la que el rayo atrae fragmentos (+15%/nivel) |
 | Multi Beam | Agrega rayos simultaneos (+1/nivel, base 1, max 3). Cada rayo busca un fragmento distinto. |
+
+### Sistema de Parallax (Fondo de Mision)
+
+El fondo de la MissionScene usa **3 capas de parallax** que dan profundidad y la sensacion
+de que la nave se encuentra dentro de un campo de asteroides. Todo es **generado proceduralmente**.
+
+**Orden de renderizado** (de atras hacia adelante):
+
+```
+Capa 1 (fondo lejano)  →  Capa 2 (asteroides cercanos)  →  Nave/Asteroide/Fragmentos  →  Capa 3 (primer plano)
+```
+
+#### Capa 1: Fondo Lejano (detras de todo)
+
+Representa el espacio profundo. Se mueve **muy lentamente** (parallax factor ~0.05-0.1).
+
+| Elemento       | Cantidad | Generacion procedural | Visual |
+|---------------|----------|----------------------|--------|
+| Estrellas      | 80-120   | Posiciones aleatorias, tamano 1-3 px | Puntos blancos/celestes con brillo variable (alpha aleatorio, leve parpadeo sinusoidal) |
+| Planetas       | 2-3      | Circulos grandes (20-50 px radio), posiciones aleatorias | Colores suaves y apagados (azul oscuro, violeta, terracota). Gradiente o sombreado simple. Sin detalle excesivo. |
+| Via Lactea     | 1        | Banda diagonal difusa generada con ruido o multiples circulos con alpha muy bajo | Tonos violeta/azul muy tenues (alpha ~15-25). Efecto de nube/nebulosa. Sutil, casi imperceptible. |
+
+**Principios**: Colores desaturados y con alpha bajo. Nada debe competir visualmente con la accion en primer plano. La capa debe sentirse como un telón de fondo atmosferico.
+
+#### Capa 2: Asteroides Cercanos (detras de la nave)
+
+Asteroides flotando que dan contexto de "campo de asteroides". Se mueven **un poco mas rapido**
+que la capa de fondo pero todavia lentos (parallax factor ~0.2-0.3).
+
+| Elemento        | Cantidad | Generacion procedural | Visual |
+|----------------|----------|----------------------|--------|
+| Asteroides med  | 5-8      | Poligonos irregulares (6-10 vertices con ruido), radio 8-25 px | Grises oscuros variados (70-110 RGB), siluetas. Rotacion lenta aleatoria. |
+
+**Principios**: Estos asteroides son decorativos, no interactivos. Deben verse como parte del entorno,
+no confundirse con el asteroide que se esta minando. Mantener tonos mas oscuros y tamaños menores que el asteroide central.
+
+#### Capa 3: Primer Plano (por encima de la nave)
+
+Asteroides grandes que pasan **ocasionalmente** por delante de todo, reforzando la sensacion de
+profundidad y de estar inmerso en el campo. Se mueven **mas rapido** (parallax factor ~1.5-2.0).
+
+| Elemento        | Frecuencia | Generacion procedural | Visual |
+|----------------|------------|----------------------|--------|
+| Asteroide grande | 1 cada 15-30s | Poligono irregular (10-14 vertices), radio 60-120 px | Gris oscuro con alpha medio (~40-60%). Semi-transparente para no tapar la accion. Cruza la pantalla de un lado a otro. |
+
+**Principios**: Poco frecuente para no distraer. Semi-transparente para que el jugador siempre
+vea la accion debajo. El movimiento debe ser lento y predecible (lineal, sin giros bruscos).
+Efecto cinematografico sutil.
+
+#### Movimiento del Parallax
+
+El desplazamiento de cada capa se vincula al **movimiento orbital de la nave** (o a un scroll
+virtual continuo si la camara es estatica). Las capas mas lejanas se mueven menos, las cercanas mas.
+
+| Capa | Parallax Factor | Velocidad relativa | Referencia de movimiento |
+|------|----------------|-------------------|------------------------|
+| 1 (fondo) | 0.05-0.1 | Casi estatica, drift muy sutil | Scroll continuo lento |
+| 2 (media) | 0.2-0.3 | Movimiento perceptible pero suave | Vinculado al angulo orbital de la nave |
+| 3 (frente) | 1.5-2.0 | Cruza la pantalla en ~8-15s | Trayectoria lineal independiente |
+
+#### Consideraciones Tecnicas
+
+- **Generacion al inicio de la mision**: Las capas 1 y 2 se generan una vez al crear MissionScene. Se reciclan/wrappean al salir de pantalla.
+- **Capa 3 spawner**: Un timer genera asteroides frontales a intervalos aleatorios (15-30s). Entran por un borde y salen por el opuesto.
+- **Performance**: Mantener el conteo de objetos bajo. Las estrellas son puntos simples, los planetas circulos con pocos draws, los asteroides poligonos de pocos vertices.
+- **Coherencia relajante**: El parallax debe agregar inmersion sin distraer. Todo movimiento es lento, fluido y predecible.
 
 ### Arquitectura de Escenas
 
