@@ -1,182 +1,290 @@
-# Pomodoro Miner - Plan de trabajo
+# Implementation Plan: Pomodoro Miner
 
-> Cada fase es un bloque de trabajo que se puede completar en una sesion.
-> Marcar con [x] las tareas completadas. Agregar nuevas fases al final.
+**Date**: 2026-02-12
+**Spec**: [spec.md](spec.md)
 
----
+## Summary
 
-## Fase 1: Tipografia custom ✓
+Juego hibrido idle/pomodoro donde el jugador trabaja en el mundo real mientras su nave
+mina recursos automaticamente. Implementado en Python con Pygame, compatible con build
+web via Pygbag. El desarrollo sigue un enfoque por user stories priorizadas, donde cada
+story entrega valor independiente.
 
-**Objetivo**: Reemplazar las fuentes del sistema por fonts embebidas que
-funcionen en todas las plataformas (especialmente web/Pygbag).
+## Technical Context
 
-**Referencia spec**: Seccion 11
+**Language/Version**: Python 3.11+
+**Primary Dependencies**: Pygame 2.x, Pygbag (build web)
+**Storage**: En memoria (persistencia en backlog)
+**Testing**: Manual (verificacion visual y funcional por escena)
+**Target Platform**: Desktop (Windows/Linux/Mac) + Web (Pygbag/itch.io)
+**Project Type**: Single project (monolito en main.py)
+**Performance Goals**: 60 FPS estables con fragmentos y particulas activos
+**Constraints**: Compatible con SDL_ttf (fonts TrueType puras), async loop para Pygbag
+**Scale/Scope**: Juego single-player casual, ~2500 LOC, 8 escenas
 
-- [x] Seleccionar y descargar fonts .ttf (Chakra Petch + Share Tech Mono)
-- [x] Crear directorio `assets/fonts/`
-- [x] Reemplazar `pygame.font.SysFont()` por `pygame.font.Font()` con rutas a .ttf
-- [x] Definir escala tipografica: 5 niveles (title 38, heading 28, timer 42, body 18, small 14)
-- [ ] Verificar build web (se hara en Fase 9)
+## Project Structure
 
-**Notas**: Orbitron descartada por usar CFF outlines (incompatible con SDL_ttf).
-Chakra Petch Bold/Regular elegida como reemplazo (geometrica, estilo tech).
+### Documentation
 
----
+```text
+pomodoro-miner-python/
+├── spec.md              # Especificacion (QUE construir)
+├── plan.md              # Este archivo (COMO implementar)
+├── sdd-guide.MD         # Guia de la metodologia SDD
+├── plan-template.md     # Template de plan
+└── spec-template.md     # Template de spec
+```
 
-## Fase 2: Pantalla de introduccion (IntroScene) ✓
+### Source Code
 
-**Objetivo**: Crear la escena de bienvenida con titulo y efecto typewriter.
+```text
+pomodoro-miner-python/
+├── main.py              # Codigo fuente principal (monolito)
+├── generate_audio.py    # Generador de archivos de audio placeholder
+├── assets/
+│   ├── fonts/           # Chakra Petch (.ttf) + Share Tech Mono (.ttf)
+│   ├── audio/           # SFX (.wav) y ambiente (.wav/.ogg)
+│   └── images/          # Story images (story_XX.png)
+└── build/
+    └── web/             # Build Pygbag para itch.io
+```
 
-**Referencia spec**: Seccion 8
-
-- [x] Implementar IntroScene con 4 fases: title_fade, title_hold, typing, done
-- [x] Efecto typewriter: renderizar texto letra por letra (~28 chars/s)
-- [x] Skip: click o tecla en cualquier momento salta directo al menu con fade
-- [x] Transicion fade al MenuScene al terminar o al skipear
-- [x] Texto: "Bienvenido a POMI Corp." + instrucciones de tareas/recursos
-- [x] IntroScene solo se muestra al iniciar el juego (no al volver de mision)
-
----
-
-## Fase 3: Pantalla de ajustes (SettingsScene) ✓
-
-**Objetivo**: Permitir al jugador configurar volumen y duraciones.
-
-**Referencia spec**: Seccion 9
-
-- [x] Agregar boton "Settings" al MenuScene (junto a "Talents")
-- [x] Implementar SettingsScene con layout centrado
-- [x] Slider de volumen SFX (0-100%, arrastrable, default 70%)
-- [x] Slider de volumen Ambiente (0-100%, arrastrable, default 50%)
-- [x] Selector de duracion de pomodoro (< > con valores: 1,5,15,25,30,45,60 min)
-- [x] Selector de duracion de descanso (< > con valores: 1,3,5,10 min)
-- [x] Boton "Back" para volver al menu
-- [x] Configuracion almacenada en Game (sfx_volume, ambient_volume, pomodoro_minutes, break_minutes)
-- [x] MissionScene y AbortScene usan `game.pomodoro_minutes` en vez de constante
-
-**Notas**: Los sliders aun no estan conectados al AudioManager (se hara en Fase 5).
-POMODORO_SECONDS se mantiene como constante legacy pero ya no se usa en el gameplay.
+**Structure Decision**: Proyecto monolito en `main.py`. Toda la logica (escenas, entidades,
+audio, game loop) vive en un solo archivo. Los assets se organizan en subdirectorios por tipo.
 
 ---
 
-## Fase 4: Sistema de descanso (Break banner) ✓
+## Phase 1: Setup (Shared Infrastructure) [COMPLETADO]
 
-**Objetivo**: Implementar la pausa entre misiones de la tecnica Pomodoro.
+**Purpose**: Proyecto base con game loop, patron de escenas y configuracion Pygbag.
 
-**Referencia spec**: Seccion 10
-
-- [x] Banner persistente en parte inferior (36px), visible en Menu/Talents/Settings
-- [x] Fase countdown: "Break MM:SS" centrado + info de mision a la izquierda
-- [x] Fase ready: "Ready for mission" en GREEN con pulse sinusoidal (0.8 Hz, 40%-100%)
-- [x] Estado del break vive en Game (break_active, break_remaining, break_ready)
-- [x] update_break(dt) en game loop principal, draw_break_banner(surf) sobre escenas de menu
-- [x] Se activa al completar mision (_start_break), se desactiva al iniciar nueva (dismiss_break)
-- [x] Duracion usa game.break_minutes (configurable en Settings)
-
-**Notas**: Cambio de diseno: se paso de escena independiente (BreakScene) a banner
-persistente. El jugador puede interactuar con menu/talents/settings mientras el break corre.
+- [x] T001 Crear estructura del proyecto con main.py y directorio assets/
+- [x] T002 Implementar game loop async compatible con Pygbag (60 FPS)
+- [x] T003 Implementar patron de escenas (handle_event, update, draw)
+- [x] T004 Implementar FadeTransition entre escenas
+- [x] T005 Definir paleta de colores y constantes globales
 
 ---
 
-## Fase 5: Sistema de audio
+## Phase 2: Foundational (Blocking Prerequisites) [COMPLETADO]
 
-**Objetivo**: Agregar SFX a las interacciones principales del juego.
+**Purpose**: Tipografia custom y sistema de audio - infraestructura compartida por todas las escenas.
 
-**Referencia spec**: Seccion 12
+- [x] T006 Seleccionar fonts TrueType compatibles con SDL_ttf (Chakra Petch + Share Tech Mono)
+- [x] T007 Crear assets/fonts/ con archivos .ttf y escala tipografica (5 niveles)
+- [x] T008 Reemplazar pygame.font.SysFont() por pygame.font.Font() con rutas .ttf
+- [x] T009 Implementar AudioManager (carga automatica, play SFX, play/stop ambient)
+- [x] T010 Generar audio placeholder con generate_audio.py (ui_click.wav, ambient_menu.wav)
+- [x] T011 Integrar SFX ui_click en todos los botones de todas las escenas
+- [x] T012 Ambient loop en menu/intro, detenido en mision
 
-- [ ] Crear directorio `assets/audio/`
-- [ ] Obtener/crear los archivos de audio (ver catalogo en spec)
-- [ ] Implementar clase/modulo AudioManager:
-  - Cargar todos los sonidos al inicio
-  - Dos canales de volumen: SFX y Ambiente (controlados desde Settings)
-  - Metodo `play(sound_name)` usa volumen SFX
-  - Metodo `play_ambient(sound_name)` usa volumen Ambiente
-  - Manejo graceful si un archivo no existe (sin crash)
-- [ ] Integrar SFX en los eventos:
-  - [ ] Click en botones del menu
-  - [ ] Agregar/eliminar tarea
-  - [ ] Inicio de mision
-  - [ ] Disparo de la nave
-  - [ ] Impacto en asteroide
-  - [ ] Recoleccion de fragmento
-  - [ ] Mision completada / abortada
-  - [ ] Upgrade de talento
-  - [ ] Titulo intro / typewriter
-  - [ ] Fin de descanso (break ready chime)
-- [ ] Conectar volumen SFX al slider de Settings (`game.sfx_volume`)
-- [ ] Conectar volumen Ambiente al slider de Settings (`game.ambient_volume`)
-- [ ] Probar compatibilidad con Pygbag (web)
+**Checkpoint**: Infraestructura de fonts y audio lista. Todas las escenas usan tipografia custom y audio.
 
 ---
 
-## Fase 6: Game juice - Movimiento organico
+## Phase 3: User Story 1 - Mision Pomodoro (Priority: P1) [COMPLETADO]
 
-**Objetivo**: Hacer que la nave y el mundo se sientan vivos y relajantes.
+**Goal**: El jugador crea tareas, inicia misiones con timer pomodoro, la nave mina automaticamente
+y los fragmentos se acumulan al completar.
 
-**Referencia spec**: Secciones 13.3, 13.4
+**Independent Test**: Crear tarea -> Start -> nave orbita y mina -> timer llega a 0 -> fragmentos guardados.
 
-- [ ] **Wobble orbital**: Agregar micro-oscilacion perpendicular a la orbita
-  - Usar suma de senos con frecuencias distintas (evitar patron repetitivo)
-  - Amplitud: ~3-5 px, frecuencias: 0.7, 1.3, 2.1 Hz aprox
-- [ ] **Facing suave**: Interpolar el angulo de facing con lerp en lugar de
-  cambio discreto entre ORBITING y SHOOTING
-- [ ] **Screenshake al impacto**:
-  - Offset aleatorio de camara (2-4 px) con decaimiento exponencial
-  - Duracion: ~0.15s
-  - Aplicar offset en el draw del Game, no en cada objeto
-- [ ] **Trail de la nave** (opcional):
-  - Buffer circular de posiciones recientes
-  - Dibujar puntos con alpha decreciente
+### Implementation for User Story 1
 
----
+- [x] T013 [US1] Implementar MenuScene: input de texto, lista de tareas, botones Add/Start/Delete
+- [x] T014 [US1] Implementar MissionScene: nave orbitando asteroide con timer countdown
+- [x] T015 [US1] Implementar Ship: orbita automatica, estados ORBITING/SHOOTING, disparo de rafagas
+- [x] T016 [US1] Implementar Asteroid: poligono procedural (14 vertices con ruido)
+- [x] T017 [US1] Implementar Projectiles: velocidad 200 px/s, spread angular, colision con asteroide
+- [x] T018 [US1] Implementar Fragments: spawn en superficie, dispersion radial, atraccion magnetica, recoleccion
+- [x] T019 [US1] Implementar timer countdown configurable (MM:SS) con delay 1.5s al completar
+- [x] T020 [US1] Implementar AbortScene: penalidad 30%, resumen de mision
+- [x] T021 [US1] Implementar IntroScene: fade-in titulo, typewriter, skip, auto-avance
+- [x] T022 [US1] Implementar StoryScene: mostrar imagenes narrativas segun pomodoros completados
 
-## Fase 7: UI polish
-
-**Objetivo**: Mejorar la experiencia de los menus y la informacion en pantalla.
-
-**Referencia spec**: Seccion 13.5
-
-- [ ] Hover en botones: cambio de color/brillo al pasar el mouse
-- [ ] Barra de progreso visual para el temporizador (complementa MM:SS)
-- [ ] Animacion sutil en el contador de fragmentos al recolectar (+1 que sube y desaparece)
-- [ ] Revisar espaciado, margenes y alineacion general de la UI
-- [ ] Mejorar feedback visual de la escena de Abort (hacerla menos agresiva)
+**Checkpoint**: Core gameplay loop funcional. Se puede crear tarea, minar y acumular fragmentos.
 
 ---
 
-## Fase 8: Particulas y efectos visuales
+## Phase 4: User Story 2 - Sistema de Talentos (Priority: P2) [COMPLETADO]
 
-**Objetivo**: Agregar efectos de particulas para reforzar las acciones del juego.
+**Goal**: El jugador gasta fragmentos en mejoras permanentes para la nave.
 
-**Referencia spec**: Seccion 13.2
+**Independent Test**: Acumular fragmentos -> Talents -> Upgrade -> verificar efecto en mision.
 
-- [ ] Flash de impacto al golpear el asteroide (explosion breve de particulas)
-- [ ] Glow/pulse en fragmentos cuando estan dentro del rango del magnet
-- [ ] Efecto visual al recolectar un fragmento (destello que se desvanece)
-- [ ] Efecto visual al completar mision (particulas de celebracion sutiles)
+### Implementation for User Story 2
 
----
+- [x] T023 [US2] Implementar TalentScene: lista de 6 talentos con niveles y boton Upgrade
+- [x] T024 [US2] Implementar sistema de costo progresivo (nivel * 5 fragmentos)
+- [x] T025 [US2] Aplicar efectos de talentos en Ship/MissionScene (fire_rate, bullet_count, magnet_range, etc.)
+- [x] T026 [US2] Feedback visual: nivel actual, costo, MAX cuando corresponda
 
-## Fase 9: Build y deploy
-
-**Objetivo**: Generar build final y subir a itch.io.
-
-- [ ] Verificar que todos los assets (fonts, audio, images) se empaquetan correctamente
-- [ ] Generar build con `python -m pygbag --build main.py`
-- [ ] Testear el build web localmente (`python -m pygbag main.py` sin --build)
-- [ ] Crear ZIP y subir a itch.io
-- [ ] Configurar pagina de itch.io (titulo, descripcion, screenshots, tags)
+**Checkpoint**: Progression loop completo. Fragmentos tienen proposito.
 
 ---
 
-## Notas de trabajo
+## Phase 5: User Story 3 - Configuracion de Ajustes (Priority: P3) [COMPLETADO]
 
-> Espacio para anotar decisiones, problemas encontrados y cambios de rumbo
-> durante el desarrollo.
+**Goal**: El jugador personaliza volumenes de audio y duraciones desde Settings.
 
-- El juego ya es compatible con Pygbag (async loop implementado).
-- POMODORO_SECONDS se mantiene como constante legacy; el gameplay usa `game.pomodoro_minutes`.
-- La IntroScene solo se muestra al arrancar, no entre misiones.
-- El BreakScene se activa solo al completar mision, no al abortar.
-- Settings tiene dos sliders (SFX y Ambiente) listos para conectar al AudioManager en Fase 5.
+**Independent Test**: Settings -> cambiar duracion pomodoro -> iniciar mision -> verificar duracion.
+
+### Implementation for User Story 3
+
+- [x] T027 [US3] Implementar SettingsScene con layout centrado
+- [x] T028 [US3] Slider de volumen SFX (0-100%, arrastrable, default 70%)
+- [x] T029 [US3] Slider de volumen Ambiente (0-100%, arrastrable, default 50%)
+- [x] T030 [US3] Selector de duracion pomodoro (< > con valores predefinidos, default 25 min)
+- [x] T031 [US3] Selector de duracion descanso (< > con valores predefinidos, default 5 min)
+- [x] T032 [US3] Conectar sliders a AudioManager (volumen en tiempo real)
+- [x] T033 [US3] MissionScene y AbortScene usan game.pomodoro_minutes
+
+**Checkpoint**: Experiencia personalizable. Audio y duraciones configurables.
+
+---
+
+## Phase 6: User Story 4 - Sistema de Descanso (Priority: P4) [COMPLETADO]
+
+**Goal**: Break banner con countdown tras mision completada, fase "ready" con pulse.
+
+**Independent Test**: Completar mision -> banner countdown -> termina -> "Ready for mission" pulsando.
+
+### Implementation for User Story 4
+
+- [x] T034 [US4] Implementar estado de break en Game (break_active, break_remaining, break_ready)
+- [x] T035 [US4] Implementar banner persistente (36px inferior) con linea separadora
+- [x] T036 [US4] Fase countdown: "Break MM:SS" centrado + info mision a la izquierda
+- [x] T037 [US4] Fase ready: "Ready for mission" en GREEN con pulse sinusoidal (0.8 Hz)
+- [x] T038 [US4] Activacion automatica al completar mision (_start_break)
+- [x] T039 [US4] Desactivacion al iniciar nueva mision (dismiss_break)
+- [x] T040 [US4] Dibujar banner sobre MenuScene, TalentScene y SettingsScene
+
+**Checkpoint**: Tecnica Pomodoro completa con breaks entre sesiones.
+
+---
+
+## Phase 7: User Story 5 - Game Juice: Movimiento Organico (Priority: P5)
+
+**Goal**: Nave con movimiento organico, screenshake, facing suave. El juego se siente vivo.
+
+**Independent Test**: Iniciar mision -> observar wobble -> observar screenshake al impacto -> facing interpolado.
+
+### Implementation for User Story 5
+
+- [ ] T041 [US5] Wobble orbital: micro-oscilacion perpendicular con suma de senos (3 frecuencias, 3-5 px)
+- [ ] T042 [US5] Facing suave: interpolar angulo con lerp entre ORBITING y SHOOTING
+- [ ] T043 [US5] Screenshake al impacto: offset camara 2-4 px, decaimiento exponencial ~0.15s
+- [ ] T044 [US5] Trail de la nave (opcional): buffer circular de posiciones con alpha decreciente
+
+**Checkpoint**: La nave se siente viva y organica.
+
+---
+
+## Phase 8: User Story 5 - Game Juice: UI Polish (Priority: P5)
+
+**Goal**: Mejorar feedback visual de menus y HUD de mision.
+
+**Independent Test**: Hover sobre botones -> cambio visual. Recolectar fragmento -> animacion +1.
+
+### Implementation
+
+- [ ] T045 [US5] Hover en botones: cambio de color/brillo al pasar el mouse
+- [ ] T046 [US5] Barra de progreso visual para el temporizador (complementa MM:SS)
+- [ ] T047 [US5] Animacion sutil en contador de fragmentos al recolectar (+1 que sube y desaparece)
+- [ ] T048 [US5] Revisar espaciado, margenes y alineacion general de la UI
+- [ ] T049 [US5] Mejorar feedback visual de AbortScene (menos agresiva)
+
+**Checkpoint**: UI pulida con feedback visual consistente.
+
+---
+
+## Phase 9: User Story 5 - Game Juice: Particulas y Efectos (Priority: P5)
+
+**Goal**: Efectos de particulas para reforzar acciones del juego.
+
+**Independent Test**: Disparar al asteroide -> flash de impacto. Recolectar fragmento -> destello.
+
+### Implementation
+
+- [ ] T050 [US5] Flash de impacto al golpear asteroide (explosion breve de particulas)
+- [ ] T051 [US5] Glow/pulse en fragmentos dentro del rango del magnet
+- [ ] T052 [US5] Efecto visual al recolectar fragmento (destello que se desvanece)
+- [ ] T053 [US5] Efecto visual al completar mision (particulas de celebracion sutiles)
+
+**Checkpoint**: Efectos visuales completos. El juego se siente pulido.
+
+---
+
+## Phase 10: User Story 5 - Game Juice: SFX Adicionales (Priority: P5)
+
+**Goal**: Agregar los SFX pendientes del catalogo de audio.
+
+**Independent Test**: Disparar -> sonido laser. Impactar -> sonido impacto. Recolectar -> tintineo.
+
+### Implementation
+
+- [ ] T054 [US5] Generar ship_shoot.wav, asteroid_hit.wav, fragment_collect.wav con generate_audio.py
+- [ ] T055 [US5] Generar mission_complete.wav, mission_abort.wav, talent_upgrade.wav, break_ready.wav
+- [ ] T056 [US5] Integrar SFX en MissionScene (disparo, impacto, recoleccion, mision completa)
+- [ ] T057 [US5] Integrar SFX en AbortScene (mision abortada)
+- [ ] T058 [US5] Integrar SFX en TalentScene (upgrade)
+- [ ] T059 [US5] Integrar SFX break_ready al terminar countdown
+
+**Checkpoint**: Audio completo. Cada accion tiene feedback sonoro sutil.
+
+---
+
+## Phase 11: Build & Deploy
+
+**Purpose**: Generar build web y publicar en itch.io.
+
+- [ ] T060 Verificar que todos los assets (fonts, audio, images) se empaquetan correctamente
+- [ ] T061 Generar build con `python -m pygbag --build main.py`
+- [ ] T062 Testear build web localmente (`python -m pygbag main.py`)
+- [ ] T063 Verificar compatibilidad de fonts TrueType con Pygbag
+- [ ] T064 Verificar compatibilidad de audio con Pygbag
+- [ ] T065 Crear ZIP y subir a itch.io
+- [ ] T066 Configurar pagina de itch.io (titulo, descripcion, screenshots, tags)
+
+**Checkpoint**: Juego publicado y accesible en web.
+
+---
+
+## Dependencies & Execution Order
+
+### Phase Dependencies
+
+- **Setup (Phase 1)**: No dependencies - COMPLETADO
+- **Foundational (Phase 2)**: Depende de Phase 1 - COMPLETADO
+- **US1 Mision Pomodoro (Phase 3)**: Depende de Phase 2 - COMPLETADO
+- **US2 Talentos (Phase 4)**: Depende de Phase 3 (necesita fragmentos) - COMPLETADO
+- **US3 Settings (Phase 5)**: Depende de Phase 2 - COMPLETADO
+- **US4 Break (Phase 6)**: Depende de Phase 3 (se activa post-mision) - COMPLETADO
+- **US5 Game Juice (Phases 7-10)**: Depende de Phases 3-6 (polish sobre funcionalidad existente)
+- **Build & Deploy (Phase 11)**: Depende de que el juego este en estado publicable
+
+### User Story Dependencies
+
+- **US1 (P1)**: Core loop - COMPLETADO. No depende de otras stories.
+- **US2 (P2)**: Depende de US1 (necesita fragmentos para comprar) - COMPLETADO
+- **US3 (P3)**: Independiente de US1/US2 (solo configuracion) - COMPLETADO
+- **US4 (P4)**: Depende de US1 (se activa post-mision) - COMPLETADO
+- **US5 (P5)**: Polish sobre todo lo anterior. Puede hacerse en paralelo por sub-fase.
+
+### Within Each Phase
+
+- Logica de entidades antes de integracion con escenas
+- Core functionality antes de polish/efectos
+- Verificar tests manuales al completar cada phase
+- Commit despues de cada tarea o grupo logico
+
+## Notes
+
+- [USx] label mapea tarea a user story para trazabilidad
+- El proyecto es monolito en main.py; no hay separacion en modulos
+- POMODORO_SECONDS se mantiene como constante legacy; el gameplay usa game.pomodoro_minutes
+- La IntroScene solo se muestra al arrancar, no entre misiones
+- El break se activa solo al completar mision, no al abortar
+- AudioManager carga todo assets/audio/ automaticamente
 - Fonts CFF (Orbitron, Exo2) no son compatibles con SDL_ttf. Usar solo TrueType puras.
+- Ambient loop corre en menu/intro, se detiene en misiones.

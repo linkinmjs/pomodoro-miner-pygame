@@ -44,6 +44,74 @@ ORBIT_SETTLE_STRENGTH = 40  # how strongly fragments are pulled to orbit radius
 
 
 # ---------------------------------------------------------------------------
+# Audio
+# ---------------------------------------------------------------------------
+_AUDIO_DIR = os.path.join(_BASE_DIR, "assets", "audio")
+
+
+class AudioManager:
+    """Handles SFX and ambient audio with independent volume controls."""
+
+    def __init__(self):
+        pygame.mixer.init()
+        self._sounds: dict[str, pygame.mixer.Sound] = {}
+        self._ambient_channel: pygame.mixer.Channel | None = None
+        self._current_ambient: str | None = None
+        self._load_all()
+
+    def _load_all(self):
+        if not os.path.isdir(_AUDIO_DIR):
+            return
+        for fname in os.listdir(_AUDIO_DIR):
+            if fname.endswith((".wav", ".ogg")):
+                name = os.path.splitext(fname)[0]
+                try:
+                    self._sounds[name] = pygame.mixer.Sound(
+                        os.path.join(_AUDIO_DIR, fname))
+                except Exception:
+                    pass  # graceful: skip files that fail to load
+
+    def play(self, name, volume=None):
+        """Play a one-shot SFX. Volume from game.sfx_volume if not given."""
+        sound = self._sounds.get(name)
+        if sound:
+            if volume is not None:
+                sound.set_volume(volume)
+            sound.play()
+
+    def play_ambient(self, name, volume=0.5):
+        """Start looping an ambient sound. Stops previous ambient if any."""
+        if name == self._current_ambient:
+            # Already playing, just update volume
+            if self._ambient_channel:
+                self._ambient_channel.set_volume(volume)
+            return
+        self.stop_ambient()
+        sound = self._sounds.get(name)
+        if sound:
+            self._ambient_channel = sound.play(loops=-1)
+            if self._ambient_channel:
+                self._ambient_channel.set_volume(volume)
+            self._current_ambient = name
+
+    def stop_ambient(self):
+        if self._ambient_channel:
+            self._ambient_channel.stop()
+            self._ambient_channel = None
+            self._current_ambient = None
+
+    def set_sfx_volume(self, vol):
+        """Update volume for all non-ambient sounds."""
+        for name, sound in self._sounds.items():
+            if name != self._current_ambient:
+                sound.set_volume(vol)
+
+    def set_ambient_volume(self, vol):
+        if self._ambient_channel:
+            self._ambient_channel.set_volume(vol)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 def clamp(v, lo, hi):
@@ -405,13 +473,16 @@ class MenuScene:
             self.input_active = self.input_rect.collidepoint(mx, my)
             # Add button
             if self.add_btn.collidepoint(mx, my):
+                self.game.audio.play("ui_click", self.game.sfx_volume)
                 self._add_task()
             # Talents button
             if self.talent_btn.collidepoint(mx, my):
+                self.game.audio.play("ui_click", self.game.sfx_volume)
                 self.game.scene = TalentScene(self.game)
                 return
             # Settings button
             if self.settings_btn.collidepoint(mx, my):
+                self.game.audio.play("ui_click", self.game.sfx_volume)
                 self.game.scene = SettingsScene(self.game)
                 return
             # Task list buttons
@@ -451,11 +522,13 @@ class MenuScene:
             # Start button
             start_r = pygame.Rect(WIDTH - 220, row_y + 4, 80, 32)
             if start_r.collidepoint(mx, my):
+                self.game.audio.play("ui_click", self.game.sfx_volume)
                 self.game.start_mission(idx)
                 return
             # Delete button
             del_r = pygame.Rect(WIDTH - 130, row_y + 4, 80, 32)
             if del_r.collidepoint(mx, my):
+                self.game.audio.play("ui_click", self.game.sfx_volume)
                 self.game.tasks.pop(idx)
                 self.scroll_offset = clamp(self.scroll_offset, 0,
                                            max(0, len(self.game.tasks) - vis))
@@ -563,10 +636,12 @@ class TalentScene:
         if ev.type == pygame.MOUSEBUTTONDOWN:
             mx, my = ev.pos
             if self.back_btn.collidepoint(mx, my):
+                self.game.audio.play("ui_click", self.game.sfx_volume)
                 self.game.scene = self.game.menu
                 return
             for i, btn in enumerate(self.upgrade_btns):
                 if btn.collidepoint(mx, my):
+                    self.game.audio.play("ui_click", self.game.sfx_volume)
                     tid = TALENT_ORDER[i]
                     self.game.talents.upgrade(tid)
 
@@ -671,6 +746,7 @@ class SettingsScene:
         if ev.type == pygame.MOUSEBUTTONDOWN:
             mx, my = ev.pos
             if self.back_btn.collidepoint(mx, my):
+                self.game.audio.play("ui_click", self.game.sfx_volume)
                 self.game.scene = self.game.menu
                 return
             # Slider drag start
@@ -682,12 +758,16 @@ class SettingsScene:
                 self.game.ambient_volume = self._slider_value_from_x(mx)
             # Duration selectors
             elif self.pom_left.collidepoint(mx, my):
+                self.game.audio.play("ui_click", self.game.sfx_volume)
                 self._cycle_option("pomodoro", -1)
             elif self.pom_right.collidepoint(mx, my):
+                self.game.audio.play("ui_click", self.game.sfx_volume)
                 self._cycle_option("pomodoro", 1)
             elif self.brk_left.collidepoint(mx, my):
+                self.game.audio.play("ui_click", self.game.sfx_volume)
                 self._cycle_option("break", -1)
             elif self.brk_right.collidepoint(mx, my):
+                self.game.audio.play("ui_click", self.game.sfx_volume)
                 self._cycle_option("break", 1)
 
         elif ev.type == pygame.MOUSEBUTTONUP:
@@ -700,6 +780,7 @@ class SettingsScene:
                 self.game.sfx_volume = val
             elif self.dragging == "ambient":
                 self.game.ambient_volume = val
+                self.game.audio.set_ambient_volume(val)
 
     def _cycle_option(self, which, direction):
         if which == "pomodoro":
@@ -837,6 +918,7 @@ class MissionScene:
     def handle_event(self, ev):
         if ev.type == pygame.MOUSEBUTTONDOWN:
             if self.abort_btn.collidepoint(ev.pos):
+                self.game.audio.play("ui_click", self.game.sfx_volume)
                 self.game.scene = AbortScene(self.game, self.task, self.collected, self.remaining)
 
     # -- update --
@@ -975,6 +1057,7 @@ class AbortScene:
     def handle_event(self, ev):
         if ev.type == pygame.MOUSEBUTTONDOWN:
             if self.continue_btn.collidepoint(ev.pos):
+                self.game.audio.play("ui_click", self.game.sfx_volume)
                 self.game.set_scene("menu")
         elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_RETURN:
             self.game.set_scene("menu")
@@ -1109,6 +1192,7 @@ class Game:
         self.font = pygame.font.Font(FONT_MONO, 18)              # Body / UI text
         self.font_small = pygame.font.Font(FONT_MONO, 14)        # Hints, captions
 
+        self.audio = AudioManager()
         self.tasks: list[Task] = []
         self.talents = TalentTree()
         self.total_pomodoros = 0
@@ -1239,6 +1323,12 @@ class Game:
 
             self.update_break(dt)
             self.scene.update(dt)
+
+            # Ambient audio: play in menu scenes, stop in gameplay
+            if isinstance(self.scene, (MenuScene, TalentScene, SettingsScene, IntroScene)):
+                self.audio.play_ambient("ambient_menu", self.ambient_volume)
+            else:
+                self.audio.stop_ambient()
 
             self.screen.fill(BG_COLOR)
             self.scene.draw(self.screen)
