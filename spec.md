@@ -42,14 +42,29 @@ que fragmentos y pomodoro se acumulan correctamente.
 4. **Scenario**: Gameplay automatico de la nave
    - **Given** la mision esta activa
    - **When** el timer corre
-   - **Then** la nave orbita automaticamente, dispara rafagas a intervalos aleatorios, los fragmentos se dispersan y son atraidos por el campo magnetico de la nave
+   - **Then** la nave orbita automaticamente, dispara rafagas a intervalos aleatorios, y los fragmentos salen despedidos a velocidades variables
+
+5. **Scenario**: Secuencia de disparo suave
+   - **Given** la nave esta orbitando y decide disparar
+   - **When** comienza la secuencia de disparo
+   - **Then** la nave gira suavemente hacia el asteroide (AIMING), desacelera por inercia, dispara bala por bala con cadencia pausada (SHOOTING), y luego gira suavemente de vuelta a su orientacion de orbita (RETURNING) recuperando velocidad gradualmente
+
+6. **Scenario**: Recoleccion por rayo tractor
+   - **Given** hay fragmentos flotando y la nave orbita
+   - **When** un fragmento esta dentro del rango del rayo tractor
+   - **Then** la nave dispara un rayo visible hacia el fragmento mas cercano en rango, lo atrae a velocidad determinada y lo recolecta al llegar a la nave. Solo atrae 1 fragmento a la vez por rayo (base).
+
+7. **Scenario**: Fragmentos fuera de alcance del rayo
+   - **Given** la nave dispara y genera fragmentos
+   - **When** los fragmentos salen despedidos fuera del rango del rayo tractor
+   - **Then** se pierden definitivamente, reduciendo la recoleccion total de la mision
 
 ---
 
 ### User Story 2 - Sistema de Talentos (Priority: P2)
 
 El jugador gasta fragmentos acumulados para comprar mejoras permanentes que potencian
-su nave (velocidad de disparo, cantidad de balas, rango magnetico, etc.).
+su nave (velocidad de disparo, cantidad de balas, rango y velocidad del rayo tractor, etc.).
 
 **Why this priority**: Da proposito a los fragmentos y motivacion para completar mas
 pomodoros. Es el progression loop que sostiene el engagement.
@@ -187,11 +202,12 @@ screenshake al impacto -> verificar particulas -> verificar hover en botones del
 
 - **FR-001**: System MUST permitir crear tareas con nombre libre (max 40 caracteres)
 - **FR-002**: System MUST mostrar una lista scrollable de tareas con acciones Add, Start, Delete
-- **FR-003**: System MUST ejecutar misiones con nave orbitando automaticamente y disparando a intervalos aleatorios
+- **FR-003**: System MUST ejecutar misiones con nave orbitando automaticamente, girando suavemente hacia el asteroide para disparar (AIMING), disparando con cadencia pausada (SHOOTING), y volviendo a orientacion de orbita (RETURNING), todo con transiciones interpoladas y velocidad orbital por inercia
 - **FR-004**: System MUST implementar timer countdown configurable (default 25 min) en formato MM:SS
-- **FR-005**: System MUST generar fragmentos al impactar el asteroide, con dispersion radial y atraccion magnetica
+- **FR-005**: System MUST generar fragmentos al impactar el asteroide con velocidades variables de dispersion; los fragmentos flotan libremente y pueden perderse si escapan fuera del rango del rayo tractor
+- **FR-005b**: System MUST recolectar fragmentos mediante rayo tractor visible: la nave emite un rayo hacia el fragmento mas cercano dentro del rango, lo atrae a velocidad fija y lo recolecta al contacto. Base: 1 rayo simultaneo, mejorable por talentos (rango, velocidad de atraccion, rayos adicionales)
 - **FR-006**: System MUST conservar 100% de fragmentos al completar y 30% al abortar
-- **FR-007**: System MUST implementar 6 talentos con niveles, costo progresivo (N * 5) y efectos acumulativos
+- **FR-007**: System MUST implementar 7 talentos con niveles, costo progresivo (N * 5) y efectos acumulativos
 - **FR-008**: System MUST proveer Settings con sliders de volumen (SFX/Ambiente) y selectores de duracion
 - **FR-009**: System MUST activar break banner tras mision completada con countdown y fase "ready"
 - **FR-010**: System MUST reproducir audio SFX y ambiente via AudioManager con control de volumen independiente
@@ -202,9 +218,10 @@ screenshake al impacto -> verificar particulas -> verificar hover en botones del
 ### Key Entities
 
 - **Task**: Nombre libre (str, max 40 chars), contador de pomodoros completados (int)
-- **Ship**: Posicion orbital (angulo), estado (ORBITING/SHOOTING), talentos aplicados
+- **Ship**: Posicion orbital (angulo), estado (ORBITING/AIMING/SHOOTING/RETURNING), angulo de facing (interpolado), velocidad orbital actual, talentos aplicados, rayos tractor activos (lista de TractorBeam)
 - **Asteroid**: Poligono procedural (14 vertices con ruido), radio base ~40 px
-- **Fragment**: Posicion, velocidad, color aleatorio (naranja/amarillo/verde/cyan), estado de atraccion
+- **Fragment**: Posicion, velocidad variable (pueden escapar de la orbita), color aleatorio (naranja/amarillo/verde/cyan), estado (FREE/LOCKED: siendo atraido por un rayo)
+- **TractorBeam**: Rayo visible entre nave y fragmento objetivo; atrae 1 fragmento a la vez a velocidad fija. Selecciona automaticamente el fragmento mas cercano dentro del rango. Se libera al recolectar el fragmento y busca el siguiente.
 - **Talent**: ID, nombre, nivel actual (int), nivel maximo (int), efecto por nivel
 - **AudioManager**: Diccionario de sonidos cargados, volumen SFX (float), volumen ambiente (float)
 
@@ -214,10 +231,11 @@ screenshake al impacto -> verificar particulas -> verificar hover en botones del
 | --------------- | --------------- | --- | -------------------------- |
 | fire_rate       | Rapid Fire      | 5   | -10% intervalo de disparo  |
 | bullet_count    | Multi Shot      | 5   | +1 bala por rafaga         |
-| magnet_range    | Magnetic Pull   | 5   | +20% radio magnetico       |
+| beam_range      | Long Range Beam | 5   | +20% rango del rayo tractor |
+| beam_speed      | Beam Accelerator| 5   | +15% velocidad de atraccion del rayo |
+| beam_count      | Multi Beam      | 2   | +1 rayo tractor simultaneo (base 1, max 3) |
 | double_frag     | Double Fragment | 5   | +8% chance fragmento doble |
 | orbit_speed     | Thruster Boost  | 5   | +10% velocidad orbital     |
-| frag_magnet_str | Tractor Beam    | 3   | +30% fuerza magnetica      |
 
 ### Parametros del Sistema
 
@@ -230,7 +248,78 @@ screenshake al impacto -> verificar particulas -> verificar hover en botones del
 | Orbita radio       | 150 px          |                                      |
 | Orbita velocidad   | 0.4 rad/s       | Base, modificable por talentos       |
 | Proyectil vel      | 200 px/s        |                                      |
-| Magnet recoleccion | < 15 px         | Distancia nave-fragmento             |
+| Rayo tractor rango | 120 px          | Base, mejorable por talento Long Range Beam |
+| Rayo tractor vel   | 80 px/s         | Velocidad de atraccion base, mejorable por Beam Accelerator |
+| Rayos simultaneos  | 1               | Base, mejorable por talento Multi Beam (max 3) |
+| Recoleccion dist   | < 15 px         | Distancia nave-fragmento para pickup  |
+
+### Comportamiento de la Nave (Ship)
+
+La nave orbita el asteroide de forma continua y realiza secuencias de disparo automaticas.
+El movimiento debe sentirse **fluido y organico**, sin cambios bruscos de estado.
+
+**Estados de la nave**:
+
+```
+ORBITING → AIMING → SHOOTING → RETURNING → ORBITING
+```
+
+| Estado      | Descripcion                                                          | Velocidad orbital       | Facing                              |
+| ----------- | -------------------------------------------------------------------- | ----------------------- | ----------------------------------- |
+| ORBITING    | Navegacion normal por la orbita                                      | 100% (base + talentos)  | Tangente a la orbita (direccion de avance) |
+| AIMING      | Giro suave hacia el asteroide antes de disparar                      | Desacelera gradualmente (~40-50% de base) | Interpola (lerp) desde tangente hacia el centro del asteroide |
+| SHOOTING    | Dispara rafaga de proyectiles con cadencia pausada entre balas       | Reducida (~30-40% de base), simula inercia | Apuntando al centro del asteroide   |
+| RETURNING   | Giro suave de vuelta a la orientacion de orbita                      | Acelera gradualmente hasta 100% | Interpola (lerp) desde asteroide hacia tangente de orbita |
+
+**Secuencia de disparo**:
+
+1. La nave decide disparar (intervalo aleatorio entre rafagas).
+2. **AIMING**: La nave gira suavemente (lerp) hacia el asteroide mientras desacelera. No frena en seco: la velocidad orbital baja gradualmente.
+3. **SHOOTING**: Una vez alineada, dispara la rafaga bala por bala con una cadencia pausada (intervalo entre balas mayor que el actual, para que se perciba la secuencia). Durante el disparo, la nave sigue avanzando lentamente por la orbita (efecto de inercia).
+4. **RETURNING**: Al terminar la rafaga, la nave gira suavemente de vuelta a la orientacion tangencial y recupera su velocidad orbital de forma gradual.
+5. **ORBITING**: Navegacion normal hasta la proxima secuencia de disparo.
+
+**Principios de movimiento**:
+
+- **Sin cambios bruscos**: Todas las transiciones de angulo y velocidad son interpoladas (lerp/ease).
+- **Inercia**: La nave nunca se detiene completamente; siempre conserva movimiento orbital residual.
+- **Coherencia relajante**: El ritmo de disparo y los giros suaves refuerzan la sensacion de calma automatica.
+
+### Sistema de Rayo Tractor (Recoleccion de Fragmentos)
+
+La recoleccion de fragmentos se realiza mediante **rayos tractores visibles** que la nave
+emite hacia los fragmentos cercanos. Reemplaza el sistema de atraccion magnetica invisible.
+
+**Comportamiento base** (sin talentos):
+
+1. La nave emite **1 rayo tractor** a la vez.
+2. El rayo busca automaticamente el **fragmento mas cercano** dentro de su rango.
+3. Al encontrarlo, se dibuja una **linea visible** (rayo) entre la nave y el fragmento.
+4. El fragmento es atraido hacia la nave a una **velocidad fija** (base 80 px/s).
+5. Al llegar a distancia de recoleccion (< 15 px), el fragmento se recolecta.
+6. El rayo se libera e inmediatamente busca el **siguiente fragmento mas cercano**.
+7. Los fragmentos fuera de rango siguen su trayectoria libre y pueden perderse.
+
+**Estados de un fragmento**:
+
+- **FREE**: Flotando libremente tras ser despedido del asteroide. No esta siendo atraido.
+- **LOCKED**: Un rayo tractor lo tiene como objetivo. Se mueve hacia la nave.
+
+Un fragmento LOCKED no puede ser objetivo de otro rayo (cada rayo atrae un fragmento distinto).
+
+**Visual del rayo**:
+
+- Linea sutil desde la nave hasta el fragmento, con color tenue (CYAN con alpha bajo).
+- Puede tener un leve pulso de opacidad o grosor para sentirse vivo.
+- Coherente con la estetica relajante: no debe ser un efecto agresivo.
+
+**Talentos relacionados**:
+
+| Talento | Efecto sobre el rayo |
+|---------|---------------------|
+| Long Range Beam | Aumenta el radio de busqueda del rayo (+20%/nivel) |
+| Beam Accelerator | Aumenta la velocidad a la que el rayo atrae fragmentos (+15%/nivel) |
+| Multi Beam | Agrega rayos simultaneos (+1/nivel, base 1, max 3). Cada rayo busca un fragmento distinto. |
 
 ### Arquitectura de Escenas
 
